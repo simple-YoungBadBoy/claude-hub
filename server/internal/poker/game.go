@@ -180,8 +180,10 @@ func (t *Table) saveLocked() {
 	}
 }
 
+// changed publishes the view. It must not touch seq: chips changing from
+// outside (task rewards, pet shop) while a bot thinks would otherwise make
+// that bot's pending turn look stale and freeze the table.
 func (t *Table) changed() {
-	t.seq++
 	if t.OnChange != nil {
 		t.OnChange(t.viewLocked())
 	}
@@ -297,6 +299,7 @@ func (t *Table) proceed() {
 		for i := 0; i < len(t.players) && !t.canAct(t.players[t.toAct]); i++ {
 			t.toAct = t.next(t.toAct)
 		}
+		t.seq++ // the game advanced: any older pending bot turn is stale
 		t.changed()
 		if p := t.players[t.toAct]; p.Bot {
 			seq := t.seq
