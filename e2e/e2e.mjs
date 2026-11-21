@@ -80,7 +80,8 @@ try {
   const noHeader = await fetch(`${base}/api/poker/start`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
   assert(noHeader.status === 403, "no X-Hub → 403");
 
-  browser = await chromium.launch({ headless: !process.env.E2E_HEADED });
+  // E2E_CHROME: use an installed Chrome/Chromium instead of Playwright's download (CI)
+  browser = await chromium.launch({ headless: !process.env.E2E_HEADED, executablePath: process.env.E2E_CHROME || undefined });
   page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
   const pageErrors = [];
   page.on("pageerror", (e) => pageErrors.push(String(e)));
