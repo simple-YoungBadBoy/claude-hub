@@ -81,6 +81,14 @@ code { background: var(--panel2); padding: 1px 5px; border-radius: 4px; }
 .dot.working { background: var(--accent); animation: pulse 1s ease-in-out infinite; }
 .dot.waiting { background: var(--yellow); animation: pulse .6s ease-in-out infinite; }
 .dot.other { background: #555; }
+.dot.error { background: var(--red); }
+.ctx { position: relative; height: 12px; margin-top: 4px; background: var(--panel2); border-radius: 99px; overflow: hidden; font-size: 9.5px; line-height: 12px; }
+.ctx-fill { height: 100%; border-radius: 99px; transition: width .4s; }
+.ctx-low .ctx-fill { background: #3f6e52; }
+.ctx-mid .ctx-fill { background: #8a6d2e; }
+.ctx-high .ctx-fill { background: #93403b; }
+.ctx span { position: absolute; right: 6px; top: 0; color: var(--text); opacity: .8; font-variant-numeric: tabular-nums; }
+.hooks-hint { font-size: 11px; color: var(--muted); padding: 6px 8px; margin: 4px; border: 1px dashed var(--line); border-radius: 7px; cursor: help; }
 @keyframes pulse { 50% { opacity: .35; transform: scale(.8); } }
 .empty { color: var(--muted); padding: 12px; text-align: center; }
 .show-all { display: flex; gap: 6px; align-items: center; color: var(--muted); font-size: 11.5px; padding: 8px 6px; }
@@ -137,6 +145,9 @@ code { background: var(--panel2); padding: 1px 5px; border-radius: 4px; }
 @keyframes hop { 0%, 100% { transform: translateY(0) scale(1, 1); } 40% { transform: translateY(-9%) scale(.97, 1.03); } 55% { transform: translateY(0) scale(1.05, .95); } }
 @keyframes breathe { 50% { transform: scale(1.025, .975); } }
 @keyframes type { 50% { transform: translateY(1.5%); } }
+.mood-worried svg { animation: shake .5s ease-in-out infinite; }
+@keyframes shake { 25% { transform: translateX(-1.5%); } 75% { transform: translateX(1.5%); } }
+.alert-mark { position: absolute; right: 0; top: -4px; color: var(--yellow); font-weight: 900; animation: float 1s ease-in-out infinite; }
 .zzz, .typing { position: absolute; right: -4px; top: 0; color: var(--muted); font-weight: 700; animation: float 2s ease-in-out infinite; }
 @keyframes float { 0% { opacity: 0; transform: translateY(6px); } 50% { opacity: 1; } 100% { opacity: 0; transform: translateY(-10px); } }
 

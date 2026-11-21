@@ -292,3 +292,11 @@ func (p *Pet) Rename(name string) (State, error) {
 	p.s.Name = string(r)
 	return p.commit(), nil
 }
+
+// Say sets the pet's speech bubble (e.g. reacting to a Claude session).
+func (p *Pet) Say(msg string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.s.Message = msg
+	p.commit()
+}

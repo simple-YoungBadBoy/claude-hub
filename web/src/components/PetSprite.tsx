@@ -1,6 +1,7 @@
 import type { Hat } from "../types";
 
-export type Mood = "happy" | "normal" | "sad" | "hungry" | "working" | "sleepy";
+export type Mood = "happy" | "normal" | "sad" | "hungry" | "working" | "sleepy" | "worried";
+export type Signals = { working: boolean; waiting: boolean; error: boolean };
 
 // 16×15 pixel body. B body, L highlight, D shade, G leaf.
 const BODY = [
@@ -60,6 +61,13 @@ function face(m: Mood): Px[] {
         ...eye(4, 6), ...eye(10, 6),
         [7, 9, "E"], [8, 9, "E"], [7, 10, "E"], [8, 10, "E"], [8, 11, "T"],
       ];
+    case "worried":
+      // wide eyes, small "o" mouth, sweat drop: someone is waiting for you
+      return [
+        ...eye(4, 6), ...eye(10, 6), [5, 7, "W"], [11, 7, "W"],
+        [7, 9, "E"], [8, 9, "E"], [7, 10, "E"], [8, 10, "E"],
+        [13, 4, "T"], [13, 5, "T"], [12, 5, "T"],
+      ];
     case "sleepy":
       return [
         [4, 7, "E"], [5, 7, "E"], [10, 7, "E"], [11, 7, "E"],
@@ -97,14 +105,17 @@ export default function PetSprite({ mood, hat, size = 96, hats }: { mood: Mood; 
       </svg>
       {mood === "sleepy" && <span className="zzz">z</span>}
       {mood === "working" && <span className="typing">⌨</span>}
+      {mood === "worried" && <span className="alert-mark">!</span>}
     </div>
   );
 }
 
-export function moodOf(p: { satiety: number; mood: number }, anyWorking: boolean): Mood {
+export function moodOf(p: { satiety: number; mood: number }, sig: Signals): Mood {
+  if (sig.waiting) return "worried";
+  if (sig.error) return "sad";
   if (p.satiety < 25) return "hungry";
   if (p.mood < 25) return "sad";
-  if (anyWorking) return "working";
+  if (sig.working) return "working";
   const h = new Date().getHours();
   if (h >= 1 && h < 7) return "sleepy";
   if (p.mood > 70 && p.satiety > 50) return "happy";

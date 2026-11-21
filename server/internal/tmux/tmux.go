@@ -17,13 +17,17 @@ import (
 
 // Session is one tmux session as shown in the client.
 type Session struct {
-	Name     string `json:"name"`
-	Created  int64  `json:"created"`  // unix seconds
-	Attached int    `json:"attached"` // number of attached clients
-	Command  string `json:"command"`  // current command of the active pane
-	Path     string `json:"path"`     // cwd of the active pane
-	Claude   bool   `json:"claude"`   // active pane runs claude
-	Status   string `json:"status"`   // idle | working | waiting | "" (non-claude)
+	Name     string   `json:"name"`
+	Created  int64    `json:"created"`  // unix seconds
+	Attached int      `json:"attached"` // number of attached clients
+	Command  string   `json:"command"`  // current command of the active pane
+	Path     string   `json:"path"`     // cwd of the active pane
+	Claude   bool     `json:"claude"`   // active pane runs claude
+	Status   string   `json:"status"`   // idle | working | waiting | error | "" (non-claude)
+	PaneID   string   `json:"paneId"`   // active pane, e.g. "%3"
+	Activity string   `json:"activity"` // e.g. "运行 Bash", "等你确认：…" (hooks only)
+	Context  *Context `json:"context,omitempty"`
+	Hooked   bool     `json:"hooked"` // status comes from Claude Code hooks
 }
 
 // Socket, when set, makes every call use a private tmux server
@@ -91,15 +95,15 @@ func List() ([]Session, error) {
 	for i := range list {
 		byName[list[i].Name] = &list[i]
 	}
-	panes, err := run("list-panes", "-a", "-F", "#{session_name}\t#{window_active}\t#{pane_active}\t#{pane_current_command}\t#{pane_current_path}")
+	panes, err := run("list-panes", "-a", "-F", "#{session_name}\t#{window_active}\t#{pane_active}\t#{pane_current_command}\t#{pane_current_path}\t#{pane_id}")
 	if err == nil {
 		for _, line := range strings.Split(strings.TrimSpace(panes), "\n") {
 			f := strings.Split(line, "\t")
-			if len(f) < 5 || f[1] != "1" || f[2] != "1" {
+			if len(f) < 6 || f[1] != "1" || f[2] != "1" {
 				continue
 			}
 			if s := byName[f[0]]; s != nil {
-				s.Command, s.Path = f[3], f[4]
+				s.Command, s.Path, s.PaneID = f[3], f[4], f[5]
 				s.Claude = isClaude(f[3])
 			}
 		}

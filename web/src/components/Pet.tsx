@@ -1,14 +1,14 @@
 import { useState } from "react";
 import { api } from "../api";
 import type { Food, Hat, PetState } from "../types";
-import PetSprite, { moodOf } from "./PetSprite";
+import PetSprite, { moodOf, type Signals } from "./PetSprite";
 
 type Props = {
   pet: PetState;
   foods: Food[];
   hats: Hat[];
   chips: number;
-  anyWorking: boolean;
+  signals: Signals;
   onToast: (m: string, err?: boolean) => void;
 };
 
@@ -39,10 +39,10 @@ export function PetBars({ pet }: { pet: PetState }) {
   );
 }
 
-export function MiniPet({ pet, hats, anyWorking, onClick }: { pet: PetState; hats: Hat[]; anyWorking: boolean; onClick: () => void }) {
+export function MiniPet({ pet, hats, signals, onClick }: { pet: PetState; hats: Hat[]; signals: Signals; onClick: () => void }) {
   return (
     <div className="mini-pet" onClick={onClick} title="去看看它">
-      <PetSprite mood={moodOf(pet, anyWorking)} hat={pet.hat} hats={hats} size={56} />
+      <PetSprite mood={moodOf(pet, signals)} hat={pet.hat} hats={hats} size={56} />
       <div className="mini-pet-info">
         <div className="mini-pet-name">
           {pet.name} <span className="muted">Lv.{pet.level}</span>
@@ -53,7 +53,7 @@ export function MiniPet({ pet, hats, anyWorking, onClick }: { pet: PetState; hat
   );
 }
 
-export default function Pet({ pet, foods, hats, chips, anyWorking, onToast }: Props) {
+export default function Pet({ pet, foods, hats, chips, signals, onToast }: Props) {
   const [bounce, setBounce] = useState(0);
   const act = async (path: string, body?: object) => {
     try {
@@ -70,7 +70,7 @@ export default function Pet({ pet, foods, hats, chips, anyWorking, onToast }: Pr
       <div className="pet-stage">
         <div className="pet-bubble">{pet.message || "……"}</div>
         <div key={bounce} className="pet-click" onClick={() => act("pat")}>
-          <PetSprite mood={moodOf(pet, anyWorking)} hat={pet.hat} hats={hats} size={200} />
+          <PetSprite mood={moodOf(pet, signals)} hat={pet.hat} hats={hats} size={200} />
         </div>
         <div className="pet-title">
           <b

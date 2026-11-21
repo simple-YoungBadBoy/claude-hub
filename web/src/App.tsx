@@ -39,6 +39,7 @@ export default function App() {
   const [newOpen, setNewOpen] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const viewRef = useRef({ tab, active });
+  const ctxAlerted = useRef<Record<string, boolean>>({});
   viewRef.current = { tab, active };
 
   const toast = useCallback((msg: string, err?: boolean) => {
@@ -70,9 +71,19 @@ export default function App() {
         case "state":
           setSt(data as HubState);
           break;
-        case "sessions":
-          setSt((s) => (s ? { ...s, sessions: data as Session[] } : s));
+        case "sessions": {
+          const list = data as Session[];
+          // warn once when a conversation's context crosses 85%
+          for (const x of list) {
+            const pct = x.context?.pct ?? 0;
+            if (pct >= 85 && !ctxAlerted.current[x.name]) {
+              ctxAlerted.current[x.name] = true;
+              void notify("⚠️ 上下文快满了", `${x.name} 已用 ${Math.round(pct)}%，建议 /compact`);
+            } else if (pct < 70) ctxAlerted.current[x.name] = false;
+          }
+          setSt((s) => (s ? { ...s, sessions: list } : s));
           break;
+        }
         case "poker":
           setSt((s) => (s ? { ...s, poker: data as PokerView } : s));
           break;
@@ -88,6 +99,9 @@ export default function App() {
           } else if (to === "waiting") {
             chime("ask");
             if (!looking) void notify("❓ Claude 需要你确认", name);
+          } else if (to === "error") {
+            chime("ask");
+            if (!looking) void notify("❌ Claude 出错了", name);
           }
           break;
         }
@@ -114,6 +128,7 @@ export default function App() {
   if (!st) return <div className="splash">{online ? "加载中…" : "连不上服务器，重试中…"}</div>;
 
   const anyWorking = st.sessions.some((s) => s.status === "working");
+  const petSignals = { working: anyWorking, waiting: st.sessions.some((s) => s.status === "waiting"), error: st.sessions.some((s) => s.status === "error") };
   const counts = {
     working: st.sessions.filter((s) => s.status === "working").length,
     waiting: st.sessions.filter((s) => s.status === "waiting").length,
@@ -129,6 +144,7 @@ export default function App() {
         </div>
         <Sidebar
           sessions={st.sessions}
+          hooks={st.hooks}
           active={tab === "chat" ? active : null}
           showAll={showAll}
           setShowAll={setShowAll}
@@ -151,7 +167,7 @@ export default function App() {
             }
           }}
         />
-        <MiniPet pet={st.pet} hats={st.hats} anyWorking={anyWorking} onClick={() => setTab("pet")} />
+        <MiniPet pet={st.pet} hats={st.hats} signals={petSignals} onClick={() => setTab("pet")} />
       </aside>
 
       <main className="main">
@@ -190,7 +206,7 @@ export default function App() {
             )}
           </div>
           {tab === "poker" && <Poker v={st.poker} onToast={toast} />}
-          {tab === "pet" && <Pet pet={st.pet} foods={st.foods} hats={st.hats} chips={st.poker.stats.chips} anyWorking={anyWorking} onToast={toast} />}
+          {tab === "pet" && <Pet pet={st.pet} foods={st.foods} hats={st.hats} chips={st.poker.stats.chips} signals={petSignals} onToast={toast} />}
         </div>
       </main>
 

@@ -23,7 +23,8 @@ Work out which machine you are on (`uname`) and what the user wants, then follow
 3. `~/claude-hub/deploy/install.sh` — builds web + server, installs and (re)starts the user service.
 4. For the service to survive logout: `loginctl show-user "$USER" -p Linger`; if `no`, ask before running `sudo loginctl enable-linger "$USER"`.
 5. Verify: `~/claude-hub/scripts/live-check.sh` must print `LIVE CHECK OK`.
-6. Give the user: the URL `http://<tailscale hostname or IP>:7788` (`tailscale status --self` / `tailscale ip -4`) and the token from `~/claude-hub/data/token`. They enter the token once in the app or browser.
+6. **Hooks (recommended, ask first).** Explain: Claude Code will run `~/claude-hub/bin/claude-hub hook` on each event (prompt, tool use, permission request, stop…); it forwards only the event name, tool name and session id to the local hub — never prompts or tool inputs — and always exits 0 within a second. This gives exact status (thinking / running a tool / waiting for permission / error) and each conversation's context usage. Changing `~/.claude/settings.json` is the user's call: have them run it themselves (in Claude Code: `! ~/claude-hub/bin/claude-hub hooks install`). It backs up the file and keeps every other setting. Running sessions pick hooks up after `claude` is restarted. Remove with `claude-hub hooks uninstall`; check with `claude-hub hooks status`.
+7. Give the user: the URL `http://<tailscale hostname or IP>:7788` (`tailscale status --self` / `tailscale ip -4`) and the token from `~/claude-hub/data/token`. They enter the token once in the app or browser.
 
 ## Install the Mac app (macOS)
 
@@ -59,10 +60,10 @@ Check the Mac can reach the server: `curl -s -o /dev/null -w '%{http_code}\n' ht
 | App shows "连不上服务器" page | Tailscale off on the Mac, server down (`systemctl --user status claude-hub`, `journalctl --user -u claude-hub -n 50`), or wrong URL (⌘, to change). |
 | Login says token wrong | Token is `~/claude-hub/data/token` on the server (whitespace is trimmed). |
 | Sessions missing from the list | Only panes running `claude` are shown by default; tick "显示其他 tmux 会话". The service must run as the same user as your tmux. |
-| Status dot never shows "working" | Status is read from the screen (`esc to interrupt`). If Claude Code changed that text, report an issue. |
+| Status wrong / no context bar | Without hooks, status is read from the screen (`esc to interrupt`) and there is no context usage. Check `~/claude-hub/bin/claude-hub hooks status` (should be 11/11) and restart `claude` in that session. |
 | Image not attached | The path is pasted as a bracketed paste; Claude Code shows `[Image #N]`. Uploads are stored in `~/claude-hub/data/uploads/<session>/`. |
 
 ## Uninstall
 
-Server: `systemctl --user disable --now claude-hub && rm ~/.config/systemd/user/claude-hub.service` (keep or delete `~/claude-hub`; `data/` holds chips/pet/uploads).
+Server: `~/claude-hub/bin/claude-hub hooks uninstall` (only removes our entries), then `systemctl --user disable --now claude-hub && rm ~/.config/systemd/user/claude-hub.service` (keep or delete `~/claude-hub`; `data/` holds chips/pet/uploads).
 Mac: delete `/Applications/Claude Hub.app` and `~/Library/Application Support/dev.claudehub.mac`.

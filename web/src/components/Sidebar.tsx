@@ -1,8 +1,9 @@
 import { useState } from "react";
-import type { Session } from "../types";
+import type { HubState, Session } from "../types";
 
 type Props = {
   sessions: Session[];
+  hooks: HubState["hooks"];
   active: string | null;
   showAll: boolean;
   setShowAll: (v: boolean) => void;
@@ -12,7 +13,21 @@ type Props = {
   onRename: (name: string, to: string) => void;
 };
 
-const statusText: Record<string, string> = { working: "工作中", waiting: "等你确认", idle: "空闲", "": "" };
+const statusText: Record<string, string> = { working: "工作中", waiting: "等你确认", idle: "空闲", error: "出错", "": "" };
+
+function fmtK(n: number) {
+  return n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : `${Math.round(n / 1000)}k`;
+}
+
+function ContextBar({ c }: { c: NonNullable<Session["context"]> }) {
+  const level = c.pct >= 85 ? "high" : c.pct >= 70 ? "mid" : "low";
+  return (
+    <div className={`ctx ctx-${level}`} title={`上下文 ${fmtK(c.tokens)} / ${fmtK(c.limit)}${c.pct >= 85 ? "，建议 /compact" : ""}`}>
+      <div className="ctx-fill" style={{ width: `${Math.max(2, c.pct)}%` }} />
+      <span>{Math.round(c.pct)}%</span>
+    </div>
+  );
+}
 
 function shortPath(p: string) {
   const parts = p.split("/").filter(Boolean);
@@ -58,9 +73,10 @@ export default function Sidebar(p: Props) {
                   {s.name}
                 </div>
               )}
-              <div className="session-sub">
-                {s.claude ? statusText[s.status] : s.command} · {shortPath(s.path)}
+              <div className="session-sub" title={s.activity || undefined}>
+                {s.claude ? s.activity || statusText[s.status] : s.command} · {shortPath(s.path)}
               </div>
+              {s.claude && s.context && <ContextBar c={s.context} />}
             </div>
             <button
               className="icon kill"
@@ -75,6 +91,11 @@ export default function Sidebar(p: Props) {
           </div>
         ))}
       </div>
+      {p.hooks.installed < p.hooks.total && p.sessions.some((s) => s.claude) && !p.sessions.some((s) => s.hooked) && (
+        <div className="hooks-hint" title="在服务器上运行：~/claude-hub/bin/claude-hub hooks install（或让 Claude 用 hub skill 安装）">
+          状态靠读屏识别 · 装上 hooks 更准，还能看上下文占用
+        </div>
+      )}
       {(hidden > 0 || p.showAll) && (
         <label className="show-all">
           <input type="checkbox" checked={p.showAll} onChange={(e) => p.setShowAll(e.target.checked)} />

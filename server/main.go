@@ -24,6 +24,7 @@ import (
 	"strings"
 	"time"
 
+	"claudehub/internal/hooks"
 	"claudehub/internal/hub"
 	"claudehub/internal/pet"
 	"claudehub/internal/poker"
@@ -54,6 +55,16 @@ type server struct {
 }
 
 func main() {
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "hook": // called by Claude Code on every hook event
+			hooks.RunClient()
+			return
+		case "hooks":
+			hooksCmd(os.Args[2:])
+			return
+		}
+	}
 	home, _ := os.UserHomeDir()
 	addrs := flag.String("addr", "", "comma-separated listen addresses (default: <tailscale ip>:7788,127.0.0.1:7788)")
 	data := flag.String("data", filepath.Join(home, "claude-hub", "data"), "data directory")
@@ -68,6 +79,7 @@ func main() {
 	tmux.Socket = *socket
 
 	s := &server{dataDir: *data, command: *command, hub: hub.New(), mon: tmux.NewMonitor()}
+	s.mon.Hooks = tmux.NewHookTracker()
 	if err := os.MkdirAll(s.dataDir, 0o700); err != nil {
 		log.Fatal(err)
 	}
@@ -92,8 +104,13 @@ func main() {
 	s.mon.OnList = func(l []tmux.Session) { s.hub.Publish("sessions", l) }
 	s.mon.OnTransition = func(name, from, to string) {
 		s.hub.Publish("status", map[string]string{"name": name, "from": from, "to": to})
-		if from == "working" && to != "working" {
+		switch {
+		case from == "working" && to == "idle":
 			s.pet.TaskDone(name)
+		case to == "waiting":
+			s.pet.Say(name + " 在等你确认！")
+		case to == "error":
+			s.pet.Say("呜… " + name + " 出错了")
 		}
 	}
 	s.mon.OnTick = s.pet.Tick
@@ -297,6 +314,19 @@ func (s *server) routes(mux *http.ServeMux) {
 		term.Serve(ws, name, uint16(c), uint16(rw))
 	})
 	mux.HandleFunc("GET /ws/events", s.events)
+	mux.HandleFunc("POST /api/hook", s.api(func(r *http.Request) (any, error) {
+		// only the local `claude-hub hook` client posts here
+		if host, _, _ := net.SplitHostPort(r.RemoteAddr); !net.ParseIP(host).IsLoopback() {
+			return nil, errors.New("hooks are accepted from localhost only")
+		}
+		var e tmux.HookEvent
+		if err := decode(r, &e); err != nil {
+			return nil, err
+		}
+		s.mon.Hooks.Apply(e)
+		go s.mon.Poke()
+		return nil, nil
+	}))
 
 	// poker
 	mux.HandleFunc("POST /api/poker/start", s.api(func(r *http.Request) (any, error) { return nil, s.table.StartHand() }))
@@ -339,6 +369,7 @@ func (s *server) state() map[string]any {
 		"foods":    pet.Foods,
 		"hats":     pet.Hats,
 		"dirs":     s.dirs(),
+		"hooks":    s.hooksInfo(),
 	}
 }
 
@@ -383,6 +414,57 @@ func (s *server) events(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+	}
+}
+
+// ---- hooks ----
+
+func (s *server) hooksInfo() map[string]any {
+	n, total := hooks.Installed(hooks.SettingsPath())
+	last := s.mon.Hooks.LastEvent()
+	info := map[string]any{"installed": n, "total": total}
+	if !last.IsZero() {
+		info["lastEvent"] = last.Unix()
+	}
+	return info
+}
+
+func hooksCmd(args []string) {
+	path := hooks.SettingsPath()
+	sub := "status"
+	if len(args) > 0 {
+		sub = args[0]
+	}
+	switch sub {
+	case "install":
+		cmd, err := hooks.Command()
+		if err != nil {
+			log.Fatal(err)
+		}
+		backup, err := hooks.Install(path, cmd)
+		if err != nil {
+			log.Fatal(err)
+		}
+		fmt.Printf("已在 %s 安装 Claude Hub hooks（%d 个事件）\n命令：%s\n", path, len(hooks.Events), cmd)
+		if backup != "" {
+			fmt.Printf("原文件备份：%s\n", backup)
+		}
+		fmt.Println("新开的 Claude 会话立即生效；已在运行的会话需要重启 claude 才会加载。")
+	case "uninstall":
+		backup, err := hooks.Uninstall(path)
+		if err != nil {
+			log.Fatal(err)
+		}
+		fmt.Printf("已从 %s 移除 Claude Hub hooks（其他设置未动）\n", path)
+		if backup != "" {
+			fmt.Printf("原文件备份：%s\n", backup)
+		}
+	case "status":
+		n, total := hooks.Installed(path)
+		fmt.Printf("%s: Claude Hub hooks %d/%d\n", path, n, total)
+	default:
+		fmt.Println("用法: claude-hub hooks install|uninstall|status")
+		os.Exit(2)
 	}
 }
 

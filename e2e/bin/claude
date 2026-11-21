@@ -5,11 +5,38 @@
 if [[ -z ${FAKE_CLAUDE_INNER:-} ]]; then
   FAKE_CLAUDE_INNER=1 exec -a claude bash "$0" "$@"
 fi
+# Fire a Claude Code hook the way the real CLI does: JSON on stdin of
+# `claude-hub hook`, with TMUX_PANE in the environment (set by tmux).
+hook() { # event [tool] [ntype] [message]
+  printf '{"hook_event_name":"%s","session_id":"fake-1","transcript_path":"%s","tool_name":"%s","notification_type":"%s","message":"%s","tool_input":{"command":"secret"}}' \
+    "$1" "$TRANSCRIPT" "${2:-}" "${3:-}" "${4:-}" | "$CLAUDE_HUB_BIN" hook
+}
+TRANSCRIPT="$CLAUDE_HUB_DATA/fake-transcript.jsonl"
 echo "fake claude ready"
 printf '> '
 while IFS= read -r line; do
   echo "got: $line"
-  if [[ $line == work* ]]; then
+  if [[ $line == hwork* ]]; then        # a turn reported through hooks
+    hook UserPromptSubmit
+    echo "✻ Working… (esc to interrupt)"
+    hook PreToolUse Bash
+    sleep 4
+    hook PostToolUse Bash
+    # 170k of a 200k window = 85%
+    echo '{"type":"assistant","message":{"model":"claude-fake","usage":{"input_tokens":10,"cache_read_input_tokens":160000,"cache_creation_input_tokens":9990,"output_tokens":0}}}' >> "$TRANSCRIPT"
+    hook Stop
+    clear
+    echo "finished"
+  elif [[ $line == hask* ]]; then       # a permission prompt
+    hook UserPromptSubmit
+    hook PermissionRequest Bash
+    echo "Do you want to proceed?"
+    IFS= read -r answer
+    hook PostToolUse Bash
+    hook Stop
+    clear
+    echo "answered: $answer"
+  elif [[ $line == work* ]]; then       # screen only, no hooks
     echo "✻ Working… (esc to interrupt)"
     sleep 6
     clear

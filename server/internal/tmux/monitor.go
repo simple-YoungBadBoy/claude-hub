@@ -14,6 +14,9 @@ type Monitor struct {
 	status   map[string]string
 	grace    map[string]int // consecutive non-working polls while still reported as working
 
+	// Hooks, when set, refines status with Claude Code hook events.
+	Hooks *HookTracker
+
 	// OnList is called whenever the session list (or a status) changes.
 	OnList func([]Session)
 	// OnTransition is called when a claude session changes status.
@@ -79,9 +82,14 @@ func (m *Monitor) poll() {
 		}
 		s.Status = Status(scr)
 		prev, ok := m.status[s.Name]
+		if m.Hooks != nil {
+			if st, act, ctx, hooked := m.Hooks.resolve(s.PaneID, s.Status); hooked {
+				s.Status, s.Activity, s.Context, s.Hooked = st, act, ctx, true
+			}
+		}
 		// The spinner can vanish for a moment between tool calls; only leave
 		// "working" after it has been gone for two polls in a row.
-		if ok && prev == "working" && s.Status == "idle" && m.grace[s.Name] < 1 {
+		if !s.Hooked && ok && prev == "working" && s.Status == "idle" && m.grace[s.Name] < 1 {
 			m.grace[s.Name]++
 			s.Status = "working"
 		} else {
@@ -97,6 +105,13 @@ func (m *Monitor) poll() {
 			delete(m.status, n)
 			delete(m.grace, n)
 		}
+	}
+	if m.Hooks != nil {
+		alive := map[string]bool{}
+		for _, s := range list {
+			alive[s.PaneID] = true
+		}
+		m.Hooks.prune(alive)
 	}
 	changed := !reflect.DeepEqual(list, m.sessions)
 	m.sessions = list

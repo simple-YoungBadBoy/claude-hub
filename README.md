@@ -14,6 +14,7 @@ English · [简体中文](README.zh-CN.md)
 - **Terminal**: full xterm.js terminal attached to the session; Shift+Enter for newlines.
 - **Images**: drag in, ⌘V a screenshot, or 📎 — the file is uploaded to the server and pasted into Claude as `[Image #N]`.
 - **Notifications** when Claude finishes or needs your confirmation.
+- **Optional Claude Code hooks** for exact status (thinking / running a tool / waiting for permission / error) and each conversation's context usage.
 - **Texas Hold'em** against four bots while you wait, and a **pixel pet** that grows while Claude works (finished tasks earn chips).
 
 All traffic leaves from the server; the Mac only renders the UI. The server listens only on its Tailscale IP and localhost, behind a token.

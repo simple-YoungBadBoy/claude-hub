@@ -53,8 +53,19 @@ async function until(fn, msg, timeout = 15000) {
   throw new Error(`timed out: ${msg} (last: ${last})`);
 }
 
+// a throwaway Claude config dir: hooks install must never touch the real one
+const claudeConfig = mkdtempSync(join(tmpdir(), "claude-hub-e2e-config-"));
+const env = {
+  ...process.env,
+  CLAUDE_CONFIG_DIR: claudeConfig,
+  CLAUDE_HUB_URL: base,
+  CLAUDE_HUB_DATA: data,
+  CLAUDE_HUB_BIN: bin,
+};
+delete env.TMUX;
 const server = spawn(bin, ["-addr", `127.0.0.1:${port}`, "-data", data, "-tmux-socket", socket, "-cmd", fake], {
   stdio: ["ignore", "pipe", "pipe"],
+  env,
 });
 let serverLog = "";
 server.stdout.on("data", (d) => (serverLog += d));
@@ -135,6 +146,43 @@ try {
     return s.pet.tasksDone > before.pet.tasksDone && s;
   }, "pet counted the finished task");
   assert(after.poker.stats.chips === before.poker.stats.chips + 10, "task reward +10 chips");
+
+  log("before hooks: the sidebar suggests installing them");
+  await page.waitForSelector(".hooks-hint");
+
+  log("hooks: activity, context bar, and hint goes away");
+  await page.click(".term-box");
+  await page.keyboard.type("hwork");
+  await page.keyboard.press("Enter");
+  await page.waitForSelector(`.session:has-text("${name}") .session-sub:has-text("运行 Bash")`, { timeout: 10000 });
+  assert((await page.locator(".hooks-hint").count()) === 0, "hint hidden once hooks report");
+  await page.waitForSelector(`.session:has-text("${name}") .dot.idle`, { timeout: 15000 });
+  await page.waitForSelector(`.session:has-text("${name}") .ctx-high:has-text("85%")`, { timeout: 5000 });
+  await page.screenshot({ path: join(out, "1b-hooks-context.png") });
+
+  log("hooks: permission prompt → waiting, worried pet, then back to idle");
+  await page.keyboard.type("hask");
+  await page.keyboard.press("Enter");
+  await page.waitForSelector(`.session:has-text("${name}") .dot.waiting`, { timeout: 10000 });
+  await page.waitForSelector(`.session:has-text("${name}") .session-sub:has-text("等你确认：Bash")`);
+  await page.waitForSelector(".mini-pet .mood-worried");
+  assert((await api("/api/state")).pet.message.includes("在等你确认"), "pet reacts to waiting");
+  await page.screenshot({ path: join(out, "1c-waiting.png") });
+  await page.keyboard.type("yes");
+  await page.keyboard.press("Enter");
+  await page.waitForSelector(`.session:has-text("${name}") .dot.idle`, { timeout: 10000 });
+  assert(screen(name).includes("answered: yes"), "answer reached the session");
+
+  log("hooks CLI: install/uninstall into the (temporary) Claude config");
+  const hooksCli = (...a) => execFileSync(bin, ["hooks", ...a], { env, encoding: "utf8" });
+  writeFileSync(join(claudeConfig, "settings.json"), JSON.stringify({ model: "opus", hooks: { Stop: [{ hooks: [{ type: "command", command: "say done" }] }] } }));
+  hooksCli("install");
+  assert(hooksCli("status").includes("11/11"), "all hook events installed");
+  const installed = readFileSync(join(claudeConfig, "settings.json"), "utf8");
+  assert(installed.includes("say done") && installed.includes('"model": "opus"'), "user settings kept");
+  hooksCli("uninstall");
+  const removed = readFileSync(join(claudeConfig, "settings.json"), "utf8");
+  assert(!removed.includes(" hook\"") && removed.includes("say done"), "uninstall removes only ours");
 
   log("rename keeps the session");
   await page.dblclick(`.session-name >> text=${name}`);

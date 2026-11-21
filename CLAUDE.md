@@ -13,7 +13,7 @@ Mac: Claude Hub.app (Tauri 壳) ──Tailscale──> 服务器 claude-hub (Go,
 
 | 目录 | 内容 |
 |---|---|
-| `server/` | Go 1.22，无框架。`main.go` 路由/鉴权/上传；`internal/tmux` 会话管理与状态识别（屏幕出现 `esc to interrupt` = 工作中）；`internal/term` pty 跑 `tmux attach` 转 websocket；`internal/poker` 德州引擎+机器人；`internal/pet` 宠物；`internal/hub` 事件广播 |
+| `server/` | Go 1.22，无框架。`main.go` 路由/鉴权/上传；`internal/tmux` 会话管理与状态识别（有 hooks 时以 hook 事件为准、读屏纠正；没有时读屏：`esc to interrupt` = 工作中）；`internal/hooks` 是 `claude-hub hook` 客户端与 settings.json 安装器；`internal/term` pty 跑 `tmux attach` 转 websocket；`internal/poker` 德州引擎+机器人；`internal/pet` 宠物；`internal/hub` 事件广播 |
 | `web/` | Vite + React + TS，编译进 `server/webdist` 再 `go:embed`。界面改动只需重新部署服务器，Mac 端 ⌘R 即可 |
 | `mac/` | Tauri v2 壳：设置页 + 本地转发 + 原生通知。**尽量不改**——能在 server/web 做的就不要放进 App（App 更新要用户重装） |
 | `e2e/` | Playwright 端到端测试：真服务器 + 独立 tmux socket + 假 `claude`（`e2e/bin/claude`） |
@@ -107,3 +107,5 @@ claude plugin validate . && claude plugin validate plugin   # 改了插件/skill
 - tmux 用 argv[0] 命名 pane，假 claude 因此要 `exec -a claude`。
 - 图片靠 tmux 括号粘贴（`paste-buffer -p`）让 Claude Code 识别成 `[Image #N]`，不要改成 `send-keys`。
 - 插件名不能以 `claude-` 开头（官方保留）。
+- 用户的 `~/.claude/settings.json` 只能由用户本人改（让用户执行 `! ~/claude-hub/bin/claude-hub hooks install`）；测试里一律用临时 `CLAUDE_CONFIG_DIR`。
+- 按 Esc 打断时 Claude Code 不触发 Stop hook，所以 hook 状态要靠读屏纠正（`hookstate.go` 的 `resolve`）。

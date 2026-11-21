@@ -5,7 +5,11 @@ export type Session = {
   command: string;
   path: string;
   claude: boolean;
-  status: "" | "idle" | "working" | "waiting";
+  status: "" | "idle" | "working" | "waiting" | "error";
+  paneId: string;
+  activity: string;
+  context?: { tokens: number; limit: number; pct: number; model?: string };
+  hooked: boolean;
 };
 
 export type Player = {
@@ -64,4 +68,5 @@ export type HubState = {
   foods: Food[];
   hats: Hat[];
   dirs: string[];
+  hooks: { installed: number; total: number; lastEvent?: number };
 };
