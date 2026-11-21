@@ -1,0 +1,17 @@
+{
+  "name": "hub-for-claude-code",
+  "owner": {
+    "name": "simple-YoungBadBoy"
+  },
+  "metadata": {
+    "description": "Use your server's tmux-hosted Claude Code sessions from a Mac app over Tailscale"
+  },
+  "plugins": [
+    {
+      "name": "hub-for-claude-code",
+      "source": "./plugin",
+      "description": "Install, update and troubleshoot Claude Hub: a Mac client for Claude Code sessions running in tmux on your server (plus Texas Hold'em and a pet).",
+      "category": "productivity"
+    }
+  ]
+}

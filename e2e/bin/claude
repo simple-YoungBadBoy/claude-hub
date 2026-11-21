@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Stand-in for `claude` in end-to-end tests: echoes input, and on "work"
+# shows Claude Code's busy line ("esc to interrupt") for a few seconds.
+# tmux names the pane after argv[0]; re-exec so it reports "claude", not "bash"
+if [[ -z ${FAKE_CLAUDE_INNER:-} ]]; then
+  FAKE_CLAUDE_INNER=1 exec -a claude bash "$0" "$@"
+fi
+echo "fake claude ready"
+printf '> '
+while IFS= read -r line; do
+  echo "got: $line"
+  if [[ $line == work* ]]; then
+    echo "✻ Working… (esc to interrupt)"
+    sleep 6
+    clear
+    echo "finished"
+  fi
+  printf '> '
+done

@@ -1,0 +1,37 @@
+name: Release
+
+# Push a tag vX.Y.Z (after CI is green on main) to publish the Mac app.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  mac:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - name: build universal app
+        run: |
+          cd mac
+          npm install
+          npx tauri icon app-icon.png
+          ver="${GITHUB_REF_NAME#v}"
+          sed -i '' "s/\"version\": \"[^\"]*\"/\"version\": \"$ver\"/" src-tauri/tauri.conf.json
+          npx tauri build --target universal-apple-darwin --bundles app
+          cd src-tauri/target/universal-apple-darwin/release/bundle/macos
+          ditto -c -k --keepParent "Claude Hub.app" "$GITHUB_WORKSPACE/Claude-Hub-macos.zip"
+      - name: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          notes=$(awk -v v="## ${GITHUB_REF_NAME}" '$0 ~ "^## " {p = ($0 ~ "^"v)} p' CHANGELOG.md)
+          gh release create "$GITHUB_REF_NAME" Claude-Hub-macos.zip --title "$GITHUB_REF_NAME" --notes "${notes:-See CHANGELOG.md}"

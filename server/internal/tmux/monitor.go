@@ -1,0 +1,113 @@
+package tmux
+
+import (
+	"log"
+	"reflect"
+	"sync"
+	"time"
+)
+
+// Monitor polls tmux, tracks Claude status per session and reports changes.
+type Monitor struct {
+	mu       sync.Mutex
+	sessions []Session
+	status   map[string]string
+	grace    map[string]int // consecutive non-working polls while still reported as working
+
+	// OnList is called whenever the session list (or a status) changes.
+	OnList func([]Session)
+	// OnTransition is called when a claude session changes status.
+	OnTransition func(name, from, to string)
+	// OnTick is called every minute with the number of working sessions.
+	OnTick func(working int)
+}
+
+func NewMonitor() *Monitor { return &Monitor{status: map[string]string{}, grace: map[string]int{}} }
+
+// Sessions returns the latest snapshot.
+func (m *Monitor) Sessions() []Session {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]Session, len(m.sessions))
+	copy(out, m.sessions)
+	return out
+}
+
+// Poke refreshes immediately (after create/kill).
+func (m *Monitor) Poke() { m.poll() }
+
+func (m *Monitor) Run(interval time.Duration) {
+	m.poll()
+	t := time.NewTicker(interval)
+	lastMinute := time.Now()
+	for range t.C {
+		m.poll()
+		if time.Since(lastMinute) >= time.Minute {
+			lastMinute = time.Now()
+			if m.OnTick != nil {
+				n := 0
+				for _, s := range m.Sessions() {
+					if s.Status == "working" {
+						n++
+					}
+				}
+				m.OnTick(n)
+			}
+		}
+	}
+}
+
+func (m *Monitor) poll() {
+	list, err := List()
+	if err != nil {
+		log.Printf("tmux list: %v", err)
+		return
+	}
+	type tr struct{ name, from, to string }
+	var trs []tr
+	m.mu.Lock()
+	seen := map[string]bool{}
+	for i := range list {
+		s := &list[i]
+		if !s.Claude {
+			continue
+		}
+		seen[s.Name] = true
+		scr, err := Capture(s.Name)
+		if err != nil {
+			continue
+		}
+		s.Status = Status(scr)
+		prev, ok := m.status[s.Name]
+		// The spinner can vanish for a moment between tool calls; only leave
+		// "working" after it has been gone for two polls in a row.
+		if ok && prev == "working" && s.Status == "idle" && m.grace[s.Name] < 1 {
+			m.grace[s.Name]++
+			s.Status = "working"
+		} else {
+			m.grace[s.Name] = 0
+		}
+		if ok && prev != s.Status {
+			trs = append(trs, tr{s.Name, prev, s.Status})
+		}
+		m.status[s.Name] = s.Status
+	}
+	for n := range m.status {
+		if !seen[n] {
+			delete(m.status, n)
+			delete(m.grace, n)
+		}
+	}
+	changed := !reflect.DeepEqual(list, m.sessions)
+	m.sessions = list
+	m.mu.Unlock()
+
+	if changed && m.OnList != nil {
+		m.OnList(list)
+	}
+	if m.OnTransition != nil {
+		for _, t := range trs {
+			m.OnTransition(t.name, t.from, t.to)
+		}
+	}
+}

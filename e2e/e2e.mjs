@@ -1,0 +1,205 @@
+// End-to-end test: starts the real server binary against a private tmux
+// server and a fake `claude`, then drives the UI in headless Chromium.
+//
+//   node e2e/e2e.mjs            (expects bin/claude-hub to be built)
+//   E2E_HEADED=1 node e2e/e2e.mjs
+//
+// Screenshots land in e2e/out/ — look at them when the UI changed.
+import { spawn, execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, mkdirSync, writeFileSync, existsSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { chromium } from "playwright";
+
+const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+const bin = join(root, "bin", "claude-hub");
+const out = join(root, "e2e", "out");
+mkdirSync(out, { recursive: true });
+if (!existsSync(bin)) throw new Error("build first: ./build.sh");
+
+const data = mkdtempSync(join(tmpdir(), "claude-hub-e2e-"));
+const socket = `claude-hub-e2e-${process.pid}`;
+const port = 20000 + (process.pid % 20000);
+const base = `http://127.0.0.1:${port}`;
+// named `claude` so tmux reports it as the pane command, like the real thing
+const fake = join(root, "e2e", "bin", "claude");
+
+const tmux = (...args) => execFileSync("tmux", ["-L", socket, ...args], { encoding: "utf8" });
+const screen = (name) => tmux("capture-pane", "-p", "-t", `=${name}:`);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+let step = "";
+const t0 = Date.now();
+function log(msg) {
+  step = msg;
+  console.log(`[${((Date.now() - t0) / 1000).toFixed(1)}s] ${msg}`);
+}
+function assert(cond, msg) {
+  if (!cond) throw new Error(`assertion failed: ${msg}`);
+}
+async function until(fn, msg, timeout = 15000) {
+  const end = Date.now() + timeout;
+  let last;
+  while (Date.now() < end) {
+    try {
+      last = await fn();
+      if (last) return last;
+    } catch (e) {
+      last = e;
+    }
+    await sleep(200);
+  }
+  throw new Error(`timed out: ${msg} (last: ${last})`);
+}
+
+const server = spawn(bin, ["-addr", `127.0.0.1:${port}`, "-data", data, "-tmux-socket", socket, "-cmd", fake], {
+  stdio: ["ignore", "pipe", "pipe"],
+});
+let serverLog = "";
+server.stdout.on("data", (d) => (serverLog += d));
+server.stderr.on("data", (d) => (serverLog += d));
+
+let browser;
+let page;
+try {
+  log("server starts");
+  await until(async () => (await fetch(`${base}/api/version`)).ok, "server up");
+  const token = readFileSync(join(data, "token"), "utf8").trim();
+  const api = async (path, body) => {
+    const r = await fetch(base + path, {
+      method: body ? "POST" : "GET",
+      headers: { Authorization: `Bearer ${token}`, "X-Hub": "1", "Content-Type": "application/json" },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    return r.json();
+  };
+
+  log("auth: API rejects requests without token / without X-Hub");
+  assert((await fetch(`${base}/api/state`)).status === 401, "no token → 401");
+  const noHeader = await fetch(`${base}/api/poker/start`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+  assert(noHeader.status === 403, "no X-Hub → 403");
+
+  browser = await chromium.launch({ headless: !process.env.E2E_HEADED });
+  page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  const pageErrors = [];
+  page.on("pageerror", (e) => pageErrors.push(String(e)));
+
+  log("login");
+  await page.goto(base);
+  await page.fill("input[type=password]", "wrong");
+  await page.click("button.primary");
+  await page.waitForSelector(".error");
+  await page.fill("input[type=password]", token);
+  await page.click("button.primary");
+  await page.waitForSelector(".new-btn");
+
+  log("new conversation opens a tmux session running claude");
+  await page.click(".new-btn");
+  await page.fill(".modal input >> nth=0", "e2e 测试");
+  await page.fill(".modal input >> nth=1", data);
+  await page.click(".modal button.primary");
+  const name = "cc-e2e-测试";
+  await until(() => tmux("ls").includes(name), "tmux session created");
+  await page.waitForSelector(`.session.active >> text=${name}`);
+  await until(() => screen(name).includes("fake claude ready"), "fake claude started");
+  await until(async () => (await page.locator(".conn-open").count()) > 0, "terminal websocket open");
+
+  log("typing in the terminal reaches the session");
+  await page.click(".term-box");
+  await page.keyboard.type("hello hub");
+  await page.keyboard.press("Enter");
+  await until(() => screen(name).includes("got: hello hub"), "input echoed");
+
+  log("image upload is pasted into the session");
+  const png = Buffer.from(
+    "89504e470d0a1a0a0000000d4948445200000001000000010806000000" + "1f15c4890000000d49444154789c6360f8cfc0f01f0005000201" + "e5274fd50000000049454e44ae426082",
+    "hex",
+  );
+  await page.setInputFiles(".term-bar input[type=file]", { name: "shot.png", mimeType: "image/png", buffer: png });
+  await page.waitForSelector(".toast >> text=已插入");
+  const uploads = join(data, "uploads", name);
+  await until(() => screen(name).replace(/\s+/g, "").includes(uploads.replace(/\s+/g, "")), "upload path pasted");
+  await page.keyboard.press("Enter");
+
+  log("working → idle is detected, pet and chips react");
+  const before = await api("/api/state");
+  await page.keyboard.type("work");
+  await page.keyboard.press("Enter");
+  await page.waitForSelector(`.session:has-text("${name}") .dot.working`, { timeout: 10000 });
+  await page.screenshot({ path: join(out, "1-working.png") });
+  await page.waitForSelector(`.session:has-text("${name}") .dot.idle`, { timeout: 20000 });
+  const after = await until(async () => {
+    const s = await api("/api/state");
+    return s.pet.tasksDone > before.pet.tasksDone && s;
+  }, "pet counted the finished task");
+  assert(after.poker.stats.chips === before.poker.stats.chips + 10, "task reward +10 chips");
+
+  log("rename keeps the session");
+  await page.dblclick(`.session-name >> text=${name}`);
+  await page.fill(".session-main input", "renamed");
+  await page.keyboard.press("Enter");
+  await until(() => tmux("ls").includes("renamed:"), "renamed in tmux");
+  await page.waitForSelector(".session >> text=renamed");
+
+  log("poker: play hands to showdown");
+  await page.click('nav.tabs button:has-text("德州")');
+  for (let hand = 0; hand < 3; hand++) {
+    await page.click('.actions button.primary:has-text("开始"), .actions button.primary:has-text("下一手")');
+    // bots "think" 0.7–1.6s per action, so a hand can take ~30s
+    for (const end = Date.now() + 90000; Date.now() < end; ) {
+      const v = (await api("/api/state")).poker;
+      if (v.street === "showdown") break;
+      if (v.toAct === 0 && v.legal) {
+        // check when free, otherwise fold: never risks busting the stack
+        const btn = v.legal.canCheck ? "过牌" : "弃牌";
+        await page.click(`.actions button:has-text("${btn}")`);
+      }
+      await sleep(400);
+    }
+    const v = (await api("/api/state")).poker;
+    assert(v.street === "showdown", `hand ${hand} finished`);
+    const sum = v.players.reduce((a, p) => a + p.chips, 0);
+    assert(sum > 0, "chips present");
+  }
+  await page.screenshot({ path: join(out, "2-poker.png") });
+
+  log("pet: feed spends chips");
+  await page.click('nav.tabs button:has-text("小克")');
+  const chips0 = (await api("/api/state")).poker.stats.chips;
+  await page.click('.shop-item:has-text("小鱼干")');
+  await until(async () => (await api("/api/state")).poker.stats.chips === chips0 - 20, "fish costs 20");
+  await page.screenshot({ path: join(out, "3-pet.png") });
+
+  log("closing a session kills it");
+  page.once("dialog", (d) => d.accept());
+  await page.click('nav.tabs button:has-text("对话")');
+  await page.hover(".session >> text=renamed");
+  await page.click('.session:has-text("renamed") .kill');
+  await until(() => {
+    try {
+      return !tmux("ls").includes("renamed:");
+    } catch {
+      return true; // no sessions left → tmux server gone
+    }
+  }, "session killed");
+
+  assert(pageErrors.length === 0, `no page errors: ${pageErrors.join("; ")}`);
+  writeFileSync(join(out, "result.txt"), "PASS\n");
+  console.log("E2E PASS");
+} catch (e) {
+  console.error(`E2E FAIL at step "${step}": ${e.message}`);
+  await page?.screenshot({ path: join(out, "fail.png") }).catch(() => {});
+  console.error(`screenshot: ${join(out, "fail.png")}`);
+  console.error("--- server log ---\n" + serverLog.slice(-3000));
+  writeFileSync(join(out, "result.txt"), `FAIL: ${step}: ${e.message}\n`);
+  process.exitCode = 1;
+} finally {
+  await browser?.close();
+  server.kill();
+  try {
+    tmux("kill-server");
+  } catch {
+    /* already gone */
+  }
+}

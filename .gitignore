@@ -1,0 +1,13 @@
+.gopath/
+.gocache/
+/bin/
+data/
+node_modules/
+e2e/out/
+server/webdist/*
+!server/webdist/.keep
+mac/src-tauri/target/
+mac/src-tauri/gen/
+mac/src-tauri/icons/
+.DS_Store
+.dev.env

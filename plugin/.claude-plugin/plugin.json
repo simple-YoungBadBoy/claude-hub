@@ -1,0 +1,19 @@
+{
+  "name": "hub-for-claude-code",
+  "version": "0.1.0",
+  "description": "Install, update and troubleshoot Claude Hub: a Mac client for Claude Code sessions running in tmux on your server (plus Texas Hold'em and a pet).",
+  "homepage": "https://github.com/simple-YoungBadBoy/claude-hub",
+  "repository": "https://github.com/simple-YoungBadBoy/claude-hub",
+  "license": "MIT",
+  "keywords": [
+    "tmux",
+    "tailscale",
+    "mac",
+    "remote",
+    "claude-code"
+  ],
+  "author": {
+    "name": "simple-YoungBadBoy",
+    "url": "https://github.com/simple-YoungBadBoy"
+  }
+}

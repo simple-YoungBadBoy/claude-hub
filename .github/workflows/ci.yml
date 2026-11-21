@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    name: tests + build + e2e (Linux)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: tmux
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq tmux
+      - name: Playwright Chromium
+        run: cd e2e && npm ci && npx playwright install --with-deps chromium
+      - name: scripts/check.sh
+        run: scripts/check.sh
+      - name: e2e screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-screenshots
+          path: e2e/out/
+
+  mac:
+    name: Mac app builds
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: mac/src-tauri
+      - name: build
+        run: |
+          cd mac
+          npm install
+          npx tauri icon app-icon.png
+          npx tauri build --bundles app

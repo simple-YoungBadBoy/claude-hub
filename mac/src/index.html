@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Claude Hub</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; height: 100vh; display: grid; place-items: center; background: #161412; color: #ece6de;
+    font: 13px/1.5 -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; }
+  form { width: min(440px, calc(100vw - 32px)); background: #1f1c19; border: 1px solid #34302b; border-radius: 12px; padding: 22px; display: flex; flex-direction: column; gap: 12px; }
+  h2 { margin: 0; display: flex; gap: 10px; align-items: center; }
+  h2 img { width: 26px; }
+  p { margin: 0; color: #958c82; }
+  input { font: inherit; color: inherit; background: #161412; border: 1px solid #34302b; border-radius: 7px; padding: 8px 10px; outline: none; }
+  input:focus { border-color: #e07a4f; }
+  button { font: inherit; cursor: pointer; border-radius: 7px; padding: 8px 14px; border: 1px solid #e07a4f; background: #e07a4f; color: #1a120d; font-weight: 600; }
+  button:disabled { opacity: .5; }
+  .err { color: #e56b6b; min-height: 1.5em; }
+  .hint { font-size: 12px; }
+  code { background: #282420; padding: 1px 5px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<form id="f">
+  <h2><img src="icon.svg" alt="" />Claude Hub</h2>
+  <p>服务器地址（Tailscale 里的开发机，端口 7788）</p>
+  <input id="url" placeholder="http://主机名.tailnet.ts.net:7788" autofocus />
+  <div class="err" id="err"></div>
+  <button id="go">连接</button>
+  <p class="hint">首次连接会要求输入服务器上 <code>~/claude-hub/data/token</code> 的口令。之后可从菜单「Claude Hub → 更改服务器…」（⌘,）回到这里。</p>
+</form>
+<script>
+  const DEFAULT = "";
+  const input = document.getElementById("url");
+  const err = document.getElementById("err");
+  const btn = document.getElementById("go");
+  const invoke = window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke;
+  input.value = DEFAULT;
+  if (invoke) invoke("get_server").then((u) => { if (u) input.value = u; }).catch(() => {});
+
+  function normalize(url) {
+    url = url.trim().replace(/\/+$/, "");
+    if (!/^https?:\/\//.test(url)) url = "http://" + url;
+    if (url.startsWith("http://") && !/:\d+$/.test(new URL(url).host)) url += ":7788";
+    return url;
+  }
+
+  document.getElementById("f").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const url = normalize(input.value);
+    btn.disabled = true;
+    err.textContent = "正在打开 " + url + " …";
+    try {
+      if (invoke) await invoke("open_server", { url });
+      else location.href = url + "/";
+    } catch (e2) {
+      err.textContent = "打不开：" + e2;
+      btn.disabled = false;
+    }
+  });
+</script>
+</body>
+</html>

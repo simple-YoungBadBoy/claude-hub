@@ -1,0 +1,13 @@
+{
+  "name": "claude-hub-mac",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "icon": "tauri icon app-icon.png",
+    "dev": "tauri dev",
+    "build": "tauri icon app-icon.png && tauri build --bundles app,dmg"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.1.0"
+  }
+}

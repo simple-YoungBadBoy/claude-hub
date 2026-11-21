@@ -1,0 +1,14 @@
+[Unit]
+Description=Claude Hub (tmux Claude sessions + poker + pet over Tailscale)
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+ExecStart=%h/claude-hub/bin/claude-hub
+Restart=always
+RestartSec=3
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=LANG=C.UTF-8
+
+[Install]
+WantedBy=default.target
