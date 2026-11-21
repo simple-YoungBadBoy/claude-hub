@@ -26,7 +26,14 @@ jobs:
         # use the runner's preinstalled Chrome instead of downloading Chromium
         env:
           E2E_CHROME: /usr/bin/google-chrome
-        run: scripts/check.sh
+        # on failure, put the log tail in an annotation: readable on the run
+        # page (and via the API) without downloading logs
+        run: |
+          set -o pipefail
+          if ! scripts/check.sh 2>&1 | tee check.log; then
+            tail -n 60 check.log | sed 's/\x1b\[[0-9;]*m//g' | python3 -c 'import sys; print("::error title=check.sh failed::" + sys.stdin.read().replace("%","%25").replace("\r","").replace("\n","%0A"))'
+            exit 1
+          fi
       - name: e2e screenshots
         if: always()
         uses: actions/upload-artifact@v4
