@@ -4,6 +4,14 @@
 
 ---
 
+## 2026-11-22 · CI 从第一次推送起一直是红的（bug）
+
+**原因**：`web/`、`e2e/` 的 `package-lock.json` 里下载地址全是本机配置的 `http://mirrors.tencentyun.com`（腾讯云内网镜像）。GitHub 和腾讯云以外的开源用户都访问不到，`npm ci --silent` 静默失败。
+
+**结论**：直接修（bug）。lockfile 改回 `https://registry.npmjs.org/`（npm 安装时仍会换成本机配置的镜像，本地速度不受影响）；`check.sh` 检查 lockfile 只含官方地址；去掉 `--silent` 让错误可见；CI 失败时把日志尾部写进 annotation（不用登录也能看）。**状态**：已完成。
+
+---
+
 ## 2026-11-22 · 部署时卡死（bug）
 
 **现象**：Claude 执行 `deploy/install.sh` 后停在 live-check，界面像卡死。

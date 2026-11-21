@@ -20,6 +20,13 @@ step() { printf '\n\033[1;33m==> %s\033[0m\n' "$*"; }
 # go:embed needs server/webdist to exist even before the web build (fresh clone)
 mkdir -p server/webdist && touch server/webdist/.keep
 
+step "lockfiles point at the public npm registry"
+# A local mirror (npm config registry) gets written into package-lock.json;
+# CI and other users can't reach it. npm still maps registry.npmjs.org to
+# your configured mirror when installing, so keep the lockfiles public.
+bad=$(grep -hoE '"resolved": "[^"]+' web/package-lock.json e2e/package-lock.json | grep -v '"resolved": "https://registry.npmjs.org/' || true)
+[ -z "$bad" ] || { echo "non-public registry in package-lock.json (fix: sed the host to https://registry.npmjs.org/):"; echo "$bad" | head -5; exit 1; }
+
 step "go: gofmt / vet / test -race"
 (
   cd server
@@ -33,7 +40,7 @@ step "build (web type check + bundle, server binary)"
 ./build.sh
 
 step "e2e (real server, private tmux, headless Chromium)"
-(cd e2e && npm ci --silent && node e2e.mjs)
+(cd e2e && npm ci --no-audit --no-fund --loglevel=error && node e2e.mjs)
 
 if [ "$(uname)" = Darwin ] && command -v cargo >/dev/null; then
   step "mac: cargo check"
