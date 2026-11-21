@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Fix: redeploying the server could kill every tmux session (including the Claude doing the deploy) when the hub had started the tmux server.
 - Fix: the poker table could freeze when chips changed (e.g. a Claude task reward) while a bot was thinking.
 - First public version: tmux session list / new / rename / close, xterm.js terminal, image upload pasted as Claude attachments, finish/ask notifications, Texas Hold'em vs 4 bots, pet that grows while Claude works.
 - Mac app (Tauri) with a local forwarder so system proxies (Clash etc.) can't break it.

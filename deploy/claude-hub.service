@@ -7,6 +7,10 @@ Wants=network-online.target
 ExecStart=%h/claude-hub/bin/claude-hub
 Restart=always
 RestartSec=3
+# tmux attach clients and, if the hub happened to start it, the tmux server
+# itself live in this cgroup. Only stop the hub on restart: killing the whole
+# cgroup would take every tmux session (and the Claude running the deploy) down.
+KillMode=process
 Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 Environment=LANG=C.UTF-8
 

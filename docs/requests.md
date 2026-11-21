@@ -4,6 +4,16 @@
 
 ---
 
+## 2026-11-22 · 部署时卡死（bug）
+
+**现象**：Claude 执行 `deploy/install.sh` 后停在 live-check，界面像卡死。
+
+**原因**：服务器重启后若第一个 tmux 会话是从网页新建的，tmux server 由 hub 拉起，落在 `claude-hub.service` 的 cgroup 里；`systemctl restart` 默认 `KillMode=control-group` 会把它连同全部会话（包括正在部署的 Claude）一起杀掉。已用独立 socket + 临时 unit 复现。
+
+**结论**：直接修（bug）。服务改 `KillMode=process`；`install.sh` 重启前后核对 tmux 会话名单，不一致就报错；`live-check.sh` 检查 KillMode。**状态**：已完成。
+
+---
+
 ## 2026-11-21 · 参考 NormanSMA/ClaudeHub，吸收好用的功能
 
 **需求**：用户发现 https://github.com/NormanSMA/ClaudeHub （MIT，Claude Code 用量看板 + 桌面吉祥物），让评审哪些功能值得加进来。

@@ -16,5 +16,7 @@ state=$(curl -fsS -m 5 -H "Authorization: Bearer $tok" "$base/api/state") || fai
 n_api=$(printf '%s' "$state" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)["sessions"]))')
 n_tmux=$(tmux ls 2>/dev/null | wc -l)
 [ "$n_api" = "$n_tmux" ] || fail "hub sees $n_api sessions, tmux has $n_tmux"
+km=$(systemctl --user show claude-hub -p KillMode --value)
+[ "$km" = process ] || fail "KillMode=$km: restarting the service would kill tmux sessions (re-run deploy/install.sh)"
 curl -fsS -m 5 "$base/" | grep -q '<div id="root">' || fail "UI not served"
 echo "LIVE CHECK OK: $got on $base, $n_api tmux sessions"
