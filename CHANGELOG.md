@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Fix (iPhone): Chinese input with third-party keyboards (Sogou, WeChat…) in the ✎ text box no longer gets wiped by background updates before it is committed.
 - iPhone: the web UI is now an installable home-screen app (PWA) with a phone layout — bottom tab bar, session drawer, a key bar (Esc / Tab / ⇧Tab / arrows / Ctrl-C / ⇧⏎ / ⏎) and a text box for the phone keyboard. Works over `tailscale serve` HTTPS (websocket origin check accepts the proxied host); the hub skill now uses port 8443 so it doesn't clash with a web server already on 443.
 - Fix: copying in Claude Code ("Copied to clipboard") now reaches the Mac/browser clipboard (OSC 52); if the browser refuses, a "点这里复制到本机" button appears.
 - Fix: a new conversation shows in the sidebar immediately, even before `claude` has started; requests time out with a clear message instead of hanging.

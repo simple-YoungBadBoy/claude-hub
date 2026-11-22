@@ -89,7 +89,11 @@ export default function Terminal({ session, visible, onToast }: Props) {
   const [busy, setBusy] = useState(false);
   const [copyLater, setCopyLater] = useState<string | null>(null);
   const [compose, setCompose] = useState(false);
-  const [draft, setDraft] = useState("");
+  // Uncontrolled on purpose: the hub pushes state often, and a controlled
+  // value re-applied mid-composition wipes the pinyin of third-party iOS
+  // keyboards (Sogou, WeChat) before it is committed.
+  const draftRef = useRef<HTMLTextAreaElement>(null);
+  const [hasDraft, setHasDraft] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const toastRef = useRef(onToast);
   toastRef.current = onToast;
@@ -275,11 +279,13 @@ export default function Terminal({ session, visible, onToast }: Props) {
   // Text and Enter go separately: Claude Code treats fast input with a CR in
   // it as a paste (newline, not submit).
   const sendDraft = () => {
-    const text = draft.replace(/\s+$/, "");
-    if (!text) return;
+    const box = draftRef.current;
+    const text = (box?.value ?? "").replace(/\s+$/, "");
+    if (!box || !text) return;
     sendInput(text.includes("\n") ? `\x1b[200~${text}\x1b[201~` : text);
     window.setTimeout(() => sendInput("\r"), 120);
-    setDraft("");
+    box.value = "";
+    setHasDraft(false);
   };
 
   const sendFiles = async (files: File[]) => {
@@ -374,11 +380,11 @@ export default function Terminal({ session, visible, onToast }: Props) {
           <textarea
             autoFocus
             rows={2}
-            value={draft}
+            ref={draftRef}
             placeholder="在这里输入，点发送（回车换行）"
-            onChange={(e) => setDraft(e.target.value)}
+            onInput={(e) => setHasDraft(e.currentTarget.value.trim() !== "")}
           />
-          <button className="primary" disabled={!draft.trim()}>
+          <button className="primary" disabled={!hasDraft}>
             发送
           </button>
         </form>

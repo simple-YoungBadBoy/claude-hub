@@ -284,6 +284,12 @@ try {
     await m.waitForSelector(".conn-open");
     await m.waitForSelector(".keybar");
     await m.tap('.keybar button:has-text("✎")');
+    // IME text not yet reported to the page must survive a re-render
+    // triggered by a hub broadcast (third-party iOS keyboards lost pinyin)
+    await m.locator(".composer textarea").evaluate((el) => (el.value = "nihao"));
+    await api("/api/pet/pat", {});
+    await m.waitForTimeout(500);
+    assert((await m.inputValue(".composer textarea")) === "nihao", "composer keeps uncommitted IME text across re-renders");
     await m.fill(".composer textarea", "from phone 手机");
     await m.tap('.composer button:has-text("发送")');
     await until(() => screen("renamed").includes("got: from phone 手机"), "composer text + Enter reached the session");
