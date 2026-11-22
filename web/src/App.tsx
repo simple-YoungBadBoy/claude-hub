@@ -37,6 +37,7 @@ export default function App() {
   const [tab, setTab] = useState<Tab>(() => load("tab", "chat"));
   const [active, setActive] = useState<string | null>(() => load("active", null));
   const [opened, setOpened] = useState<string[]>(() => (load<string | null>("active", null) ? [load("active", "")] : []));
+  const fresh = useRef<{ name: string; at: number } | null>(null);
   const [newOpen, setNewOpen] = useState<false | { dir?: string }>(false);
   const [theme, setThemeState] = useState<Theme>(getTheme);
   const [dock, setDock] = useState<boolean>(() => load("dock", true)); // terminal beside other tabs on wide screens
@@ -140,16 +141,17 @@ export default function App() {
   // drop terminals for sessions that no longer exist
   useEffect(() => {
     if (!st) return;
+    // A session just created or renamed may be missing from a list that was
+    // sent a moment earlier: keep it for a few seconds.
     const names = new Set(st.sessions.map((s) => s.name));
-    // keep the active one open (a rename can land after the list update)
-    setOpened((o) => {
-      const kept = o.filter((n) => names.has(n));
-      return active && names.has(active) && !kept.includes(active) ? [...kept, active] : kept;
-    });
+    const f = fresh.current;
+    if (f && Date.now() - f.at < 10000) names.add(f.name);
+    setOpened((o) => o.filter((n) => names.has(n)));
     if (active && !names.has(active)) setActive(null);
-  }, [st?.sessions, active]);
+  }, [st?.sessions]);
 
   const open = (name: string) => {
+    fresh.current = { name, at: Date.now() };
     setOpened((o) => (o.includes(name) ? o : [...o.slice(-7), name]));
     setActive(name);
     setTab("chat");
@@ -211,6 +213,7 @@ export default function App() {
           onRename={async (n, to) => {
             try {
               const r = await api<{ name: string }>(`/api/sessions/${encodeURIComponent(n)}/rename`, { name: to });
+              fresh.current = { name: r.name, at: Date.now() };
               setOpened((o) => [...o.filter((x) => x !== n && x !== r.name), r.name]);
               if (active === n) setActive(r.name);
             } catch (e) {
