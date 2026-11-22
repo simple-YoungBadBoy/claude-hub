@@ -284,8 +284,21 @@ export default function Terminal({ session, visible, onToast }: Props) {
     if (!box || !text) return;
     sendInput(text.includes("\n") ? `\x1b[200~${text}\x1b[201~` : text);
     window.setTimeout(() => sendInput("\r"), 120);
-    box.value = "";
+    clearDraft(box);
     setHasDraft(false);
+  };
+  // Clear through the editing pipeline, not `value = ""`: a script write is
+  // invisible to iOS third-party keyboards (Sogou), which then keep the sent
+  // text as context and delete the wrong characters on the next edit.
+  const clearDraft = (box: HTMLTextAreaElement) => {
+    box.focus();
+    box.select();
+    try {
+      document.execCommand("delete");
+    } catch {
+      /* unsupported */
+    }
+    if (box.value) box.value = "";
   };
 
   const sendFiles = async (files: File[]) => {

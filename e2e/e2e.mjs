@@ -291,8 +291,11 @@ try {
     await m.waitForTimeout(500);
     assert((await m.inputValue(".composer textarea")) === "nihao", "composer keeps uncommitted IME text across re-renders");
     await m.fill(".composer textarea", "from phone 手机");
+    await m.locator(".composer textarea").evaluate((el) => el.addEventListener("input", (e) => (window.__clearedBy = e.inputType)));
     await m.tap('.composer button:has-text("发送")');
     await until(() => screen("renamed").includes("got: from phone 手机"), "composer text + Enter reached the session");
+    assert((await m.inputValue(".composer textarea")) === "", "composer cleared after send");
+    assert(String(await m.evaluate(() => window.__clearedBy)).startsWith("delete"), "composer cleared as an edit the keyboard sees (not a script value write)");
     await m.tap('.keybar button >> text="⏎"'); // exact: "⇧⏎" also contains ⏎
     await until(() => /^got:\s*$/m.test(screen("renamed")), "key bar Enter reached the session");
     assert(!screen("renamed").includes("^["), "⏎ sent a plain Enter (not Esc+Enter from a neighbouring key)");
