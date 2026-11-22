@@ -364,3 +364,69 @@ label.check input { width: auto; }
   .usage-days { gap: 4px; height: 140px; }
   input, textarea { font-size: 16px; } /* iOS zooms in on smaller inputs */
 }
+
+/* ---- inspector: conversation / git changes / files (read-only) ---- */
+.term-main { flex: 1; min-height: 0; position: relative; display: flex; flex-direction: column; }
+.inspector { position: absolute; top: 0; right: 0; bottom: 0; width: min(620px, 62%); z-index: 6; display: flex; flex-direction: column; background: var(--panel); border-left: 1px solid var(--line); box-shadow: -8px 0 24px #0003; }
+.insp-tabs { display: flex; align-items: center; gap: 4px; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.insp-tabs button { padding: 3px 10px; font-size: 12.5px; }
+.insp-tabs button.on, .term-bar button.on { border-color: var(--accent); color: var(--accent2); }
+.insp-body { flex: 1; min-height: 0; overflow: auto; -webkit-overflow-scrolling: touch; }
+.insp-body > div { min-height: 100%; }
+.insp-empty { color: var(--muted); padding: 16px; text-align: center; font-size: 13px; }
+.insp-empty.error { color: var(--err, #e5534b); }
+
+.chat { height: 100%; overflow: auto; padding: 12px 14px 24px; display: flex; flex-direction: column; gap: 12px; font-size: 13.5px; line-height: 1.6; }
+.insp-body > .chat { min-height: 0; }
+.chat-more { text-align: center; font-size: 12px; }
+.chat-msg.user { align-self: flex-end; max-width: 88%; }
+.chat-user { background: var(--active-bg, var(--panel2)); border: 1px solid var(--line); border-radius: 12px 12px 4px 12px; padding: 7px 11px; white-space: pre-wrap; word-break: break-word; }
+.chat-msg.assistant { align-self: stretch; }
+.chat-tools { margin-top: 4px; font-size: 12px; color: var(--muted); }
+.chat-tools summary { cursor: pointer; user-select: none; }
+.chat-tool { padding: 2px 0 2px 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: "SF Mono", Menlo, monospace; font-size: 11.5px; }
+.chat-tool b { color: var(--fg, inherit); font-weight: 600; }
+.chat-tool.err b, .chat-err { color: var(--err, #e5534b); }
+
+.md { word-break: break-word; }
+.md > :first-child { margin-top: 0; }
+.md > :last-child { margin-bottom: 0; }
+.md p, .md ul, .md ol, .md blockquote, .md pre, .md .md-table { margin: 0 0 8px; }
+.md .md-h { margin: 12px 0 6px; line-height: 1.35; }
+.md h3 { font-size: 1.25em; } .md h4 { font-size: 1.12em; } .md h5, .md h6 { font-size: 1em; }
+.md ul, .md ol { padding-left: 22px; }
+.md blockquote { border-left: 3px solid var(--line); padding-left: 10px; color: var(--muted); }
+.md hr { border: none; border-top: 1px solid var(--line); margin: 10px 0; }
+.md a { color: var(--accent2); }
+.md code { font-size: .92em; }
+.md-code { background: var(--bg); border: 1px solid var(--line); border-radius: 7px; padding: 8px 10px; overflow-x: auto; font-size: 12px; line-height: 1.45; }
+.md-code code { background: none; padding: 0; }
+.md-table { overflow-x: auto; }
+.md table { border-collapse: collapse; font-size: .95em; }
+.md th, .md td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; vertical-align: top; }
+.md th { background: var(--panel2); }
+
+.git-head, .crumbs { display: flex; align-items: center; gap: 4px; padding: 8px 12px; border-bottom: 1px solid var(--line); font-size: 12.5px; flex-wrap: wrap; position: sticky; top: 0; background: var(--panel); z-index: 1; }
+.git-head button, .crumbs button { padding: 2px 8px; font-size: 12px; }
+.crumbs button { border: none; background: none; padding: 2px 4px; }
+.crumbs button:hover { color: var(--accent2); }
+.git-row, .dir-row { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; border: none; border-bottom: 1px solid var(--line); border-radius: 0; background: none; padding: 7px 12px; font-size: 12.5px; }
+.git-row:hover, .dir-row:hover, .git-row.on { background: var(--panel2); }
+.git-path, .dir-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: "SF Mono", Menlo, monospace; }
+.git-st { flex-shrink: 0; font-size: 10.5px; padding: 0 5px; border-radius: 4px; border: 1px solid currentColor; }
+.git-st.add { color: #4caf73; } .git-st.del { color: #e5534b; } .git-st.mod { color: var(--accent2); }
+.diff, .file-text { margin: 0; padding: 6px 0; font: 11.5px/1.5 "SF Mono", Menlo, monospace; overflow-x: auto; background: var(--bg); }
+.diff > div { padding: 0 12px; white-space: pre; min-width: max-content; }
+.diff .add { background: #2ea04326; } .diff .del { background: #f8514926; }
+.diff .hunk { color: var(--accent2); background: var(--panel2); } .diff .meta { color: var(--muted); }
+.file-text > div { white-space: pre; padding-right: 12px; min-width: max-content; }
+.file-text .ln { display: inline-block; width: 44px; padding-right: 10px; text-align: right; color: var(--muted); user-select: none; opacity: .7; }
+.file-md { padding: 14px 18px; font-size: 14px; line-height: 1.65; }
+.md-link-off { text-decoration: underline dotted; }
+
+@media (max-width: 700px) {
+  .inspector { width: 100%; border-left: none; box-shadow: none; }
+  .insp-tabs button { padding: 5px 10px; font-size: 13px; }
+  .chat { font-size: 14.5px; }
+  .git-row, .dir-row { padding: 10px 12px; font-size: 13.5px; }
+}

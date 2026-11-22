@@ -38,6 +38,7 @@ import (
 	"claudehub/internal/tmux"
 	"claudehub/internal/usage"
 	"claudehub/internal/webpush"
+	"claudehub/internal/workspace"
 
 	"github.com/gorilla/websocket"
 )
@@ -372,6 +373,38 @@ func (s *server) routes(mux *http.ServeMux) {
 		return nil, tmux.Send(r.PathValue("name"), body.Text)
 	}))
 	mux.HandleFunc("POST /api/upload/{name}", s.api(s.upload))
+	// read-only views of a session's working directory and conversation
+	mux.HandleFunc("GET /api/sessions/{name}/git", s.api(func(r *http.Request) (any, error) {
+		cwd, _, err := s.locate(r)
+		if err != nil {
+			return nil, err
+		}
+		return workspace.Status(cwd)
+	}))
+	mux.HandleFunc("GET /api/sessions/{name}/diff", s.api(func(r *http.Request) (any, error) {
+		cwd, _, err := s.locate(r)
+		if err != nil {
+			return nil, err
+		}
+		return workspace.FileDiff(cwd, r.URL.Query().Get("path"))
+	}))
+	mux.HandleFunc("GET /api/sessions/{name}/file", s.api(func(r *http.Request) (any, error) {
+		cwd, _, err := s.locate(r)
+		if err != nil {
+			return nil, err
+		}
+		return workspace.Read(cwd, r.URL.Query().Get("path"))
+	}))
+	mux.HandleFunc("GET /api/sessions/{name}/chat", s.api(func(r *http.Request) (any, error) {
+		_, tr, err := s.locate(r)
+		if err != nil {
+			return nil, err
+		}
+		if !strings.HasSuffix(tr, ".jsonl") {
+			return &tmux.Chat{Messages: []tmux.ChatMsg{}}, nil
+		}
+		return tmux.ReadChat(tr, 300)
+	}))
 
 	// Web Push (lock-screen notifications on a home-screen iPhone app)
 	mux.HandleFunc("GET /api/push", s.api(func(r *http.Request) (any, error) {
@@ -480,6 +513,18 @@ func (s *server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/pet/buy", petAction(func(b petBody) (pet.State, error) { return s.pet.BuyHat(b.ID) }))
 	mux.HandleFunc("POST /api/pet/wear", petAction(func(b petBody) (pet.State, error) { return s.pet.Wear(b.ID) }))
 	mux.HandleFunc("POST /api/pet/rename", petAction(func(b petBody) (pet.State, error) { return s.pet.Rename(b.Name) }))
+}
+
+// locate finds a session's working directory and transcript.
+func (s *server) locate(r *http.Request) (cwd, transcript string, err error) {
+	cwd, transcript, ok := s.mon.Locate(r.PathValue("name"))
+	if !ok {
+		return "", "", errors.New("会话不存在")
+	}
+	if cwd == "" {
+		return "", "", errors.New("不知道这个会话的工作目录")
+	}
+	return cwd, transcript, nil
 }
 
 func (s *server) state() map[string]any {

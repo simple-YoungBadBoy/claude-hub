@@ -224,3 +224,13 @@ func itoa(n int64) string {
 	}
 	return string(b)
 }
+
+// transcript is the transcript path hooks reported for a pane.
+func (h *HookTracker) transcript(pane string) string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if p := h.panes[pane]; p != nil {
+		return p.transcr
+	}
+	return ""
+}

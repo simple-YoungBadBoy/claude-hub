@@ -6,7 +6,7 @@
 //
 // Screenshots land in e2e/out/ — look at them when the UI changed.
 import { spawn, execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, mkdirSync, writeFileSync, existsSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, mkdirSync, writeFileSync, appendFileSync, existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -221,6 +221,56 @@ try {
   await page.waitForSelector(`.session:has-text("${name}") .dot.idle`, { timeout: 10000 });
   assert(screen(name).includes("answered: 3"), "option number reached the session");
 
+  log("📖 查看 → 对话: the transcript as chat, Markdown rendered, tools collapsed");
+  const rec = (o) => JSON.stringify(o) + "\n";
+  appendFileSync(
+    join(data, "fake-transcript.jsonl"),
+    rec({ type: "user", message: { role: "user", content: "把 README 改一下" } }) +
+      rec({ type: "assistant", message: { content: [{ type: "tool_use", id: "e1", name: "Edit", input: { file_path: join(data, "README.md") } }] } }) +
+      rec({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "e1", content: "ok" }] } }) +
+      rec({ type: "assistant", message: { content: [{ type: "text", text: "<div align=\"center\">\n## 改好了\n- 加了 **一行**\n\n| 文件 | 行 |\n|---|---|\n| README.md | 2 |\n\n[x](javascript:alert(1))" }] } }),
+  );
+  await page.click(".insp-toggle");
+  await page.waitForSelector('.chat-msg.user:has-text("把 README 改一下")', { timeout: 5000 });
+  await page.waitForSelector('.chat-msg.assistant .md-h:has-text("改好了")');
+  await page.waitForSelector('.chat-msg.assistant td:has-text("README.md")');
+  await page.waitForSelector('.chat-msg.assistant strong:has-text("一行")');
+  assert((await page.locator(".chat a").count()) === 0, "javascript: links are not clickable");
+  assert(!(await page.locator(".chat").innerText()).includes("<div"), "HTML-only lines are hidden, never rendered");
+  await page.waitForSelector('.chat-tools summary:has-text("1 个工具调用")');
+  await page.screenshot({ path: join(out, "1d-inspect-chat.png") });
+
+  log("± 改动: git changes of the session's directory, diff per file");
+  const git = (...a) => execFileSync("git", ["-C", data, "-c", "user.name=e2e", "-c", "user.email=e2e@x", ...a], { encoding: "utf8" });
+  writeFileSync(join(data, ".gitignore"), "*\n!.gitignore\n!README.md\n!notes/\n!notes/*\n");
+  writeFileSync(join(data, "README.md"), "# 说明\n\n第一行\n");
+  git("init", "-q", "-b", "main");
+  git("add", ".");
+  git("commit", "-q", "-m", "init");
+  writeFileSync(join(data, "README.md"), "# 说明\n\n第一行\n新的一行\n");
+  mkdirSync(join(data, "notes"));
+  writeFileSync(join(data, "notes", "todo.md"), "- [ ] 待办\n");
+  await page.click('.insp-tabs button:has-text("改动")');
+  await page.waitForSelector('.git-head:has-text("main")', { timeout: 5000 });
+  await page.waitForSelector('.git-row:has-text("notes/todo.md") .git-st.add');
+  await page.click('.git-row:has-text("README.md")');
+  await page.waitForSelector('.diff .add:has-text("+新的一行")');
+  await page.screenshot({ path: join(out, "1e-inspect-git.png") });
+
+  log("📁 文件: browse the directory, Markdown rendered, never outside it");
+  await page.click('.insp-tabs button:has-text("文件")');
+  await page.click('.dir-row:has-text("README.md")');
+  await page.waitForSelector('.file-md .md-h:has-text("说明")');
+  await page.click('.crumbs button:has-text("源码")');
+  await page.waitForSelector('.file-text:has-text("新的一行")');
+  await page.screenshot({ path: join(out, "1f-inspect-file.png") });
+  const esc = await api(`/api/sessions/${encodeURIComponent(name)}/file?path=${encodeURIComponent("../../etc/passwd")}`);
+  assert(esc.error && !esc.text, "file outside the session directory refused");
+  const tok = await api(`/api/sessions/${encodeURIComponent(name)}/diff?path=${encodeURIComponent("--output=/tmp/x")}`);
+  assert(tok.error, "diff only for files git reports");
+  await page.click(".insp-close");
+  await page.waitForSelector(".inspector", { state: "detached" });
+
   log("hooks CLI: install/uninstall into the (temporary) Claude config");
   const hooksCli = (...a) => execFileSync(bin, ["hooks", ...a], { env, encoding: "utf8" });
   writeFileSync(join(claudeConfig, "settings.json"), JSON.stringify({ model: "opus", hooks: { Stop: [{ hooks: [{ type: "command", command: "say done" }] }] } }));
@@ -376,6 +426,12 @@ try {
     const kb = await m.locator(".keybar").evaluate((el) => [el.scrollWidth, el.clientWidth]);
     assert(kb[0] <= kb[1], `key bar fits without scrolling (${kb})`);
     await m.screenshot({ path: join(out, "5-phone.png") });
+    await m.tap(".insp-toggle");
+    await m.waitForSelector('.chat-msg.user:has-text("把 README 改一下")');
+    const ib = await m.locator(".inspector").boundingBox();
+    assert(ib.width >= 380, `inspector full width on the phone (${ib.width})`);
+    await m.screenshot({ path: join(out, "5-phone-inspect.png") });
+    await m.tap(".insp-close");
     await m.tap('nav.tabs button:has-text("用量")');
     await m.waitForSelector(".usage-card.big");
     await m.screenshot({ path: join(out, "5-phone-usage.png") });

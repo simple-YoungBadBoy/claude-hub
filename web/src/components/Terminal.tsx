@@ -7,6 +7,8 @@ import "@xterm/xterm/css/xterm.css";
 import { api, upload, wsURL } from "../api";
 import type { Session } from "../types";
 import { getTheme, onTheme, type Theme } from "../theme";
+import { pathLinks } from "../termLinks";
+import Inspector, { type InspectTab } from "./Inspector";
 
 type Props = {
   session: string;
@@ -187,6 +189,12 @@ export default function Terminal({ session, info, visible, docked, onToast }: Pr
   const fileInput = useRef<HTMLInputElement>(null);
   const toastRef = useRef(onToast);
   toastRef.current = onToast;
+  const [insp, setInsp] = useState<InspectTab | null>(null);
+  const [inspFile, setInspFile] = useState<{ path: string; n: number }>();
+  const openFile = useRef((path: string) => {
+    setInspFile((f) => ({ path, n: (f?.n ?? 0) + 1 }));
+    setInsp("files");
+  });
 
   // create terminal + websocket once per session
   useEffect(() => {
@@ -204,6 +212,7 @@ export default function Terminal({ session, info, visible, docked, onToast }: Pr
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.loadAddon(new WebLinksAddon());
+    term.registerLinkProvider(pathLinks(term, (p) => openFile.current(p)));
     term.open(box.current!);
     // WebGL is fast on desktops; on phones (iOS Safari especially) it can
     // mis-scale or lose its context, and the DOM renderer is plenty there
@@ -516,6 +525,9 @@ export default function Terminal({ session, info, visible, docked, onToast }: Pr
         <span className={`conn conn-${conn}`} />
         <span className="term-title">{session}</span>
         <span className="spacer" />
+        <button className={`ghost insp-toggle ${insp ? "on" : ""}`} title="对话记录、git 改动、文件（只读）" onClick={() => setInsp(insp ? null : "chat")}>
+          📖 查看
+        </button>
         <button className={`ghost bar-toggle ${compose ? "on" : ""}`} title={compose ? "关掉输入栏，直接在终端里打字" : "打开输入栏（本地输入，不等回显，中文更顺）"} onClick={() => setCompose(!compose)}>
           ⌨ 输入栏
         </button>
@@ -533,7 +545,10 @@ export default function Terminal({ session, info, visible, docked, onToast }: Pr
           }}
         />
       </div>
-      <div className="term-box" ref={box} />
+      <div className="term-main">
+        <div className="term-box" ref={box} />
+        {insp && <Inspector session={session} status={info?.status ?? ""} tab={insp} file={inspFile} onTab={setInsp} onClose={() => setInsp(null)} />}
+      </div>
       {prompt && answered !== promptKey && (
         <div className="prompt-card">
           <div className="prompt-q">{prompt.question}</div>
@@ -613,7 +628,7 @@ export default function Terminal({ session, info, visible, docked, onToast }: Pr
             rows={1}
             ref={draftRef}
             enterKeyHint={coarse ? "enter" : "send"}
-            placeholder={coarse ? "给 Claude 发消息 · 可用 🎤 听写" : "给 Claude 发消息 · 回车发送，Shift+回车换行"}
+            placeholder={coarse ? "给 Claude 发消息" : "给 Claude 发消息 · 回车发送，Shift+回车换行"}
             title={coarse ? undefined : "回车发送，Shift+回车换行 · 输入框空着时 ↑↓ Tab 回车直接给终端 · Esc 打断 Claude · ⌘1–9 切换会话"}
             onInput={(e) => {
               setHasDraft(e.currentTarget.value.trim() !== "");

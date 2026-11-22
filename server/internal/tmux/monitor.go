@@ -173,3 +173,28 @@ func (m *Monitor) poll() {
 		}
 	}
 }
+
+// Locate returns a session's working directory and transcript path (from
+// hooks when they report one, else the newest transcript of that directory).
+func (m *Monitor) Locate(name string) (cwd, transcript string, ok bool) {
+	m.mu.Lock()
+	var s *Session
+	for i := range m.sessions {
+		if m.sessions[i].Name == name {
+			s = &m.sessions[i]
+		}
+	}
+	if s == nil {
+		m.mu.Unlock()
+		return "", "", false
+	}
+	cwd, pane := s.Path, s.PaneID
+	m.mu.Unlock()
+	if m.Hooks != nil {
+		transcript = m.Hooks.transcript(pane)
+	}
+	if transcript == "" {
+		transcript = LatestTranscript(ProjectsDir(), cwd)
+	}
+	return cwd, transcript, true
+}
