@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
-import { upload, wsURL } from "../api";
+import { api, upload, wsURL } from "../api";
 import type { Session } from "../types";
 
 type Props = {
@@ -99,6 +99,27 @@ function saveHist(text: string) {
   }
 }
 
+// The input bar is the default way to type (local echo, native IME); a
+// viewer can turn it off. Per-device preference, so browser storage.
+const BAR_KEY = "hub.composer";
+function barPref(): boolean {
+  try {
+    return localStorage.getItem(BAR_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+function saveBarPref(on: boolean) {
+  try {
+    localStorage.setItem(BAR_KEY, on ? "1" : "0");
+  } catch {
+    /* storage unavailable */
+  }
+}
+const coarse = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
+// keys that go straight to Claude while the input bar is empty
+const PASS_EMPTY: Record<string, string> = { ArrowUp: "\x1b[A", ArrowDown: "\x1b[B", Tab: "\t" };
+
 export default function Terminal({ session, info, visible, onToast }: Props) {
   const box = useRef<HTMLDivElement>(null);
   const termRef = useRef<XTerm | null>(null);
@@ -108,13 +129,16 @@ export default function Terminal({ session, info, visible, onToast }: Props) {
   const [dragging, setDragging] = useState(false);
   const [busy, setBusy] = useState(false);
   const [copyLater, setCopyLater] = useState<string | null>(null);
-  const [compose, setCompose] = useState(false);
+  const [compose, setComposeState] = useState(barPref);
   // Uncontrolled on purpose: the hub pushes state often, and a controlled
   // value re-applied mid-composition wipes the pinyin of third-party iOS
   // keyboards (Sogou, WeChat) before it is committed.
   const draftRef = useRef<HTMLTextAreaElement>(null);
   const [hasDraft, setHasDraft] = useState(false);
   const [hist, setHist] = useState<string[] | null>(null);
+  const composing = useRef(false);
+  const compEnd = useRef(0);
+  const sendQ = useRef<Promise<unknown>>(Promise.resolve());
   const [answered, setAnswered] = useState("");
   const prompt = info?.status === "waiting" ? info.prompt : undefined;
   const promptKey = prompt ? JSON.stringify(prompt) : "";
@@ -285,7 +309,7 @@ export default function Terminal({ session, info, visible, onToast }: Props) {
     };
     const raf = requestAnimationFrame(() => {
       doFit();
-      termRef.current?.focus();
+      focusInput();
     });
     const ro = new ResizeObserver(doFit);
     if (box.current) ro.observe(box.current);
@@ -299,19 +323,71 @@ export default function Terminal({ session, info, visible, onToast }: Props) {
     const ws = wsRef.current;
     if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ t: "i", d }));
   };
-  // The composer suits phone keyboards / IME better than typing into xterm.
-  // Text and Enter go separately: Claude Code treats fast input with a CR in
-  // it as a paste (newline, not submit).
+  // Where typing goes: the input bar when it's open (on phones only after a
+  // tap, so the soft keyboard doesn't cover the screen), else the terminal.
+  const focusInput = () => {
+    if (draftRef.current) {
+      if (!coarse) draftRef.current.focus();
+    } else termRef.current?.focus();
+  };
+  const setCompose = (on: boolean) => {
+    saveBarPref(on);
+    setComposeState(on);
+    window.setTimeout(() => (on && !coarse ? draftRef.current?.focus() : termRef.current?.focus()), 0);
+  };
+  const fitDraft = (box: HTMLTextAreaElement) => {
+    box.style.height = "auto";
+    box.style.height = `${Math.min(box.scrollHeight + 2, coarse ? 160 : 220)}px`;
+  };
+  // The server types the text, waits until it shows in Claude's input, then
+  // presses Enter (an Enter that overtakes the text submits nothing).
+  // Messages are queued so two quick sends never interleave.
   const sendDraft = () => {
     const box = draftRef.current;
     const text = (box?.value ?? "").replace(/\s+$/, "");
     if (!box || !text) return;
-    sendInput(text.includes("\n") ? `\x1b[200~${text}\x1b[201~` : text);
-    window.setTimeout(() => sendInput("\r"), 120);
     saveHist(text);
     clearDraft(box);
+    fitDraft(box);
     setHasDraft(false);
     setHist(null);
+    sendQ.current = sendQ.current.then(() =>
+      api(`/api/sessions/${encodeURIComponent(session)}/send`, { text }).catch((e) => {
+        onToast(`发送失败：${(e as Error).message}`, true);
+        if (draftRef.current && !draftRef.current.value) fillDraft(text);
+      }),
+    );
+  };
+  const onDraftKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    // an IME is choosing characters: Enter/arrows belong to it (Safari sends
+    // the confirming Enter right after compositionend, hence the time check)
+    if (e.nativeEvent.isComposing || e.keyCode === 229 || composing.current || performance.now() - compEnd.current < 80) return;
+    const box = e.currentTarget;
+    const empty = box.value === "";
+    if (e.key === "Escape") {
+      e.preventDefault();
+      if (hist) setHist(null);
+      else sendInput("\x1b"); // interrupt Claude / close its menu, even mid-draft
+      return;
+    }
+    if (e.key === "c" && e.ctrlKey && !e.metaKey && box.selectionStart === box.selectionEnd) {
+      e.preventDefault();
+      sendInput("\x03");
+      return;
+    }
+    if (e.key === "Enter" && !e.shiftKey && !e.altKey && !e.metaKey && !coarse) {
+      e.preventDefault();
+      if (empty) sendInput("\r");
+      else sendDraft();
+      return;
+    }
+    if (empty && !e.altKey && !e.metaKey && !e.ctrlKey) {
+      const seq = e.key === "Tab" && e.shiftKey ? "\x1b[Z" : PASS_EMPTY[e.key];
+      if (seq) {
+        e.preventDefault();
+        sendInput(seq);
+      }
+    }
   };
   // fill from history as an edit too, so the keyboard sees it
   const fillDraft = (text: string) => {
@@ -327,6 +403,7 @@ export default function Terminal({ session, info, visible, onToast }: Props) {
       /* unsupported */
     }
     if (!ok || box.value !== text) box.value = text;
+    fitDraft(box);
     setHasDraft(text.trim() !== "");
   };
   // Clear through the editing pipeline, not `value = ""`: a script write is
@@ -353,7 +430,7 @@ export default function Terminal({ session, info, visible, onToast }: Props) {
       onToast(`上传失败：${(e as Error).message}`, true);
     } finally {
       setBusy(false);
-      termRef.current?.focus();
+      focusInput();
     }
   };
 
@@ -393,6 +470,9 @@ export default function Terminal({ session, info, visible, onToast }: Props) {
         <span className={`conn conn-${conn}`} />
         <span className="term-title">{session}</span>
         <span className="spacer" />
+        <button className={`ghost bar-toggle ${compose ? "on" : ""}`} title={compose ? "关掉输入栏，直接在终端里打字" : "打开输入栏（本地输入，不等回显，中文更顺）"} onClick={() => setCompose(!compose)}>
+          ⌨ 输入栏
+        </button>
         <button className="ghost" title="发送图片/文件（也可直接拖进来或 ⌘V 粘贴截图）" onClick={() => fileInput.current?.click()} disabled={busy}>
           {busy ? "上传中…" : "📎 图片"}
         </button>
@@ -441,7 +521,7 @@ export default function Terminal({ session, info, visible, onToast }: Props) {
             {label}
           </button>
         ))}
-        <button className={compose ? "on" : ""} onPointerDown={(e) => e.preventDefault()} onClick={() => setCompose((c) => !c)} title="用输入框打字（中文输入更顺手）">
+        <button className={compose ? "on" : ""} onPointerDown={(e) => e.preventDefault()} onClick={() => setCompose(!compose)} title="输入栏（中文输入更顺手）">
           ✎
         </button>
       </div>
@@ -464,11 +544,27 @@ export default function Terminal({ session, info, visible, onToast }: Props) {
             </div>
           )}
           <textarea
-            autoFocus
-            rows={2}
+            rows={1}
             ref={draftRef}
-            placeholder="在这里输入，点发送（回车换行）· 也可用键盘上的 🎤 听写"
-            onInput={(e) => setHasDraft(e.currentTarget.value.trim() !== "")}
+            enterKeyHint={coarse ? "enter" : "send"}
+            placeholder={coarse ? "给 Claude 发消息 · 可用 🎤 听写" : "给 Claude 发消息 · 回车发送，Shift+回车换行 · 空着时 ↑↓ Tab 回车直接给终端，Esc 打断"}
+            onInput={(e) => {
+              setHasDraft(e.currentTarget.value.trim() !== "");
+              fitDraft(e.currentTarget);
+            }}
+            onKeyDown={onDraftKey}
+            onCompositionStart={() => (composing.current = true)}
+            onCompositionEnd={() => {
+              composing.current = false;
+              compEnd.current = performance.now();
+            }}
+            onPaste={(e) => {
+              const files = imageFiles(e.clipboardData?.items);
+              if (files.length) {
+                e.preventDefault();
+                void sendFiles(files);
+              }
+            }}
           />
           <button
             type="button"

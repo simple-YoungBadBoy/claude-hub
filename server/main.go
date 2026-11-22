@@ -52,6 +52,7 @@ type server struct {
 	dataDir string
 	token   string
 	command string
+	escMs   int // tmux escape-time to set when it's still tmux's 500ms default; <0 = leave alone
 	hub     *hub.Hub
 	mon     *tmux.Monitor
 	table   *poker.Table
@@ -76,6 +77,7 @@ func main() {
 	data := flag.String("data", filepath.Join(home, "claude-hub", "data"), "data directory")
 	command := flag.String("cmd", "claude", "command run in new sessions")
 	socket := flag.String("tmux-socket", "", "use a private tmux server (tmux -L NAME); for tests")
+	escMs := flag.Int("tmux-escape-time", 10, "lower tmux's escape-time to this many ms if it is still the 500ms default (Esc reacts at once); -1 leaves it alone")
 	version := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
 	if *version {
@@ -85,7 +87,8 @@ func main() {
 	tmux.Socket = *socket
 
 	mime.AddExtensionType(".webmanifest", "application/manifest+json")
-	s := &server{dataDir: *data, command: *command, hub: hub.New(), mon: tmux.NewMonitor()}
+	s := &server{dataDir: *data, command: *command, escMs: *escMs, hub: hub.New(), mon: tmux.NewMonitor()}
+	tmux.FastEscape(s.escMs)
 	s.up.CheckOrigin = checkOrigin
 	s.mon.Hooks = tmux.NewHookTracker()
 	s.usage = usage.New(usage.DefaultRoot())
@@ -314,6 +317,7 @@ func (s *server) routes(mux *http.ServeMux) {
 		if err != nil {
 			return nil, err
 		}
+		tmux.FastEscape(s.escMs) // the tmux server may have just started
 		s.rememberDir(dir)
 		s.mon.Poke()
 		return map[string]string{"name": name}, nil
@@ -338,6 +342,16 @@ func (s *server) routes(mux *http.ServeMux) {
 			return nil, err
 		}
 		return nil, tmux.Paste(r.PathValue("name"), body.Text)
+	}))
+	mux.HandleFunc("POST /api/sessions/{name}/send", s.api(func(r *http.Request) (any, error) {
+		var body struct{ Text string }
+		if err := decode(r, &body); err != nil {
+			return nil, err
+		}
+		if !tmux.Exists(r.PathValue("name")) {
+			return nil, errors.New("会话不存在")
+		}
+		return nil, tmux.Send(r.PathValue("name"), body.Text)
 	}))
 	mux.HandleFunc("POST /api/upload/{name}", s.api(s.upload))
 

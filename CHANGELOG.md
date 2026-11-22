@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Typing: an input bar is now on by default on Mac and phone — text appears instantly (no round trip to the server), the native IME works normally, Enter sends (Shift+Enter for a newline, Enter while picking IME candidates never sends), and with an empty bar ↑↓ / Tab / Enter go to Claude; Esc and Ctrl-C interrupt anytime. Toggle with "⌨ 输入栏".
+- Sending is reliable: the server types the message, waits until it shows in Claude's input, then presses Enter; `/commands` still run, multi-line text keeps its newlines.
+- Esc reacts at once: the hub lowers tmux's `escape-time` from the 500 ms default to 10 ms (runtime only, your own setting is respected; `-tmux-escape-time=-1` to opt out).
+- Terminal upgraded to xterm.js 6.0 (fixes doubled characters with some IMEs).
 - One-tap approval: when Claude asks for permission (or asks a numbered question), a card under the terminal shows the question, the command and the options — tap one instead of typing. Works with or without hooks.
 - Session list shows what each conversation is about (Claude Code's own title) and, when idle, Claude's last words.
 - ✎ text box: 🕘 recent messages to resend, a hint that the keyboard's dictation works, and no more iOS zoom when it gets focus.

@@ -123,6 +123,30 @@ try {
   await page.keyboard.press("Enter");
   await until(() => screen(name).includes("got: hello hub"), "input echoed");
 
+  log("input bar: Enter sends, an IME's Enter doesn't, Shift+Enter is a newline, slash commands stay typed");
+  const bar = page.locator(".composer textarea");
+  await bar.click();
+  await page.keyboard.type("bar 你好");
+  await bar.evaluate((el) => el.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }))); // choosing characters
+  await page.keyboard.press("Enter");
+  assert((await bar.inputValue()).startsWith("bar 你好"), "Enter during IME composition is the IME's");
+  await bar.evaluate((el) => el.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true })));
+  await page.waitForTimeout(150);
+  await bar.fill("bar 你好");
+  await page.keyboard.press("Enter");
+  await until(() => screen(name).includes("got: bar 你好"), "input bar sent the line");
+  assert((await bar.inputValue()) === "", "input bar cleared after send");
+  await page.keyboard.type("/compact now");
+  await page.keyboard.press("Enter");
+  await until(() => screen(name).includes("got: /compact now"), "slash command typed, not pasted");
+  await page.keyboard.type("first line");
+  await page.keyboard.press("Shift+Enter");
+  await page.keyboard.type("second line");
+  assert((await bar.inputValue()) === "first line\nsecond line", "Shift+Enter adds a newline");
+  await page.keyboard.press("Enter");
+  await until(() => screen(name).includes("got: second line"), "multi-line message delivered");
+  await page.click(".term-box");
+
   log("copy in Claude (tmux load-buffer -w → OSC 52) reaches the local clipboard");
   await page.keyboard.type("copy");
   await page.keyboard.press("Enter");
@@ -291,7 +315,7 @@ try {
     await m.waitForSelector(".sidebar.open", { state: "detached" });
     await m.waitForSelector(".conn-open");
     await m.waitForSelector(".keybar");
-    await m.tap('.keybar button:has-text("✎")');
+    await m.waitForSelector(".composer textarea"); // the input bar is on by default
     // IME text not yet reported to the page must survive a re-render
     // triggered by a hub broadcast (third-party iOS keyboards lost pinyin)
     await m.locator(".composer textarea").evaluate((el) => (el.value = "nihao"));

@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+	"time"
 )
 
 func privateServer(t *testing.T) {
@@ -79,5 +80,43 @@ func TestNewServerStartsOutsideOurCgroup(t *testing.T) {
 	}
 	if !strings.Contains(string(cg), "tmux-claudehub-") {
 		t.Fatalf("tmux server cgroup %q, want its own tmux-claudehub-* scope", cg)
+	}
+}
+
+func TestLanded(t *testing.T) {
+	scr := "old stuff\n────\n❯ 帮我把登录页的按钮改成\n  蓝色的\n────\n  ? for shortcuts\n"
+	if !landed(scr, "帮我把登录页的按钮改成蓝色的") {
+		t.Fatal("wrapped CJK input not found")
+	}
+	if landed("❯ \n", "hello world") {
+		t.Fatal("empty input must not count")
+	}
+	if !landed("❯ [Pasted text #1 +12 lines]\n", "a\nb\nc") {
+		t.Fatal("folded paste counts")
+	}
+}
+
+func TestSendAndFastEscape(t *testing.T) {
+	privateServer(t)
+	if _, err := run("new-session", "-d", "-s", "s", "-x", "80", "-y", "20", "cat"); err != nil {
+		t.Fatal(err)
+	}
+	run("set-option", "-gs", "escape-time", "500") // tmux's old default, whatever ~/.tmux.conf says
+	FastEscape(10)
+	if out, _ := run("show-options", "-gsv", "escape-time"); strings.TrimSpace(out) != "10" {
+		t.Fatalf("escape-time %q", out)
+	}
+	run("set-option", "-gs", "escape-time", "300")
+	FastEscape(10)
+	if out, _ := run("show-options", "-gsv", "escape-time"); strings.TrimSpace(out) != "300" {
+		t.Fatalf("a user's own value was changed: %q", out)
+	}
+	if err := Send("s", "/compact 你好"); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(200 * time.Millisecond)
+	scr, _ := Capture("s")
+	if strings.Count(scr, "/compact 你好") != 2 { // the tty echo and cat's copy after Enter
+		t.Fatalf("screen:\n%s", scr)
 	}
 }
