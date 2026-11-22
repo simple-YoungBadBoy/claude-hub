@@ -213,6 +213,29 @@ try {
   }
   await page.screenshot({ path: join(out, "2-poker.png") });
 
+  log("usage: today's tokens from transcripts, duplicates counted once");
+  {
+    const dir = join(claudeConfig, "projects", "-tmp-e2e-proj");
+    mkdirSync(dir, { recursive: true });
+    const line = (id) =>
+      JSON.stringify({
+        type: "assistant", timestamp: new Date().toISOString(), requestId: `req_${id}`, cwd: "/tmp/e2e-proj",
+        message: { id: `msg_${id}`, model: "claude-e2e", usage: { input_tokens: 1000, output_tokens: 2000, cache_read_input_tokens: 3000, cache_creation_input_tokens: 4000 } },
+      }) + "\n";
+    // the same response twice (one line per content block), plus another one
+    writeFileSync(join(dir, "s.jsonl"), line("a") + line("a") + line("b"));
+    await page.click('.tabs button:has-text("用量")');
+    await page.waitForSelector('.usage-card.big b:has-text("20.0k")');
+    await page.waitForSelector('.usage-table td:has-text("claude-e2e")');
+    await page.waitForSelector('.usage-table td:has-text("/tmp/e2e-proj")');
+    const u = await api("/api/usage");
+    assert(u.today.messages === 2 && u.today.output === 4000, `usage de-duplicated: ${JSON.stringify(u.today)}`);
+    assert(u.days.length === 7, "7-day series");
+    await page.click('.seg button:has-text("输出")');
+    await page.waitForSelector('.usage-day.today .usage-day-val:has-text("4.0k")');
+    await page.screenshot({ path: join(out, "4-usage.png") });
+  }
+
   log("pet: feed spends chips");
   await page.click('nav.tabs button:has-text("小克")');
   const chips0 = (await api("/api/state")).poker.stats.chips;

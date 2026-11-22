@@ -13,7 +13,7 @@ Mac: Claude Hub.app (Tauri 壳) ──Tailscale──> 服务器 claude-hub (Go,
 
 | 目录 | 内容 |
 |---|---|
-| `server/` | Go 1.22，无框架。`main.go` 路由/鉴权/上传；`internal/tmux` 会话管理与状态识别（有 hooks 时以 hook 事件为准、读屏纠正；没有时读屏：`esc to interrupt` = 工作中）；`internal/hooks` 是 `claude-hub hook` 客户端与 settings.json 安装器；`internal/term` pty 跑 `tmux attach` 转 websocket；`internal/poker` 德州引擎+机器人；`internal/pet` 宠物；`internal/hub` 事件广播 |
+| `server/` | Go 1.22，无框架。`main.go` 路由/鉴权/上传；`internal/tmux` 会话管理与状态识别（有 hooks 时以 hook 事件为准、读屏纠正；没有时读屏：`esc to interrupt` = 工作中）；`internal/hooks` 是 `claude-hub hook` 客户端与 settings.json 安装器；`internal/usage` 增量统计 `~/.claude/projects` 里的 token 用量；`internal/term` pty 跑 `tmux attach` 转 websocket；`internal/poker` 德州引擎+机器人；`internal/pet` 宠物；`internal/hub` 事件广播 |
 | `web/` | Vite + React + TS，编译进 `server/webdist` 再 `go:embed`。界面改动只需重新部署服务器，Mac 端 ⌘R 即可 |
 | `mac/` | Tauri v2 壳：设置页 + 本地转发 + 原生通知。**尽量不改**——能在 server/web 做的就不要放进 App（App 更新要用户重装） |
 | `e2e/` | Playwright 端到端测试：真服务器 + 独立 tmux socket + 假 `claude`（`e2e/bin/claude`） |

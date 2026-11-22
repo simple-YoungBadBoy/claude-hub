@@ -70,3 +70,13 @@ export type HubState = {
   dirs: string[];
   hooks: { installed: number; total: number; lastEvent?: number };
 };
+
+export type UsageCounts = { input: number; output: number; cacheRead: number; cacheWrite: number; messages: number };
+export type UsageReport = {
+  today: UsageCounts;
+  todaySub: UsageCounts;
+  models: (UsageCounts & { name: string })[];
+  projects: (UsageCounts & { name: string })[];
+  days: (UsageCounts & { day: string })[];
+  scannedAt: number;
+};

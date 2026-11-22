@@ -15,6 +15,7 @@ English · [简体中文](README.zh-CN.md)
 - **Images**: drag in, ⌘V a screenshot, or 📎 — the file is uploaded to the server and pasted into Claude as `[Image #N]`.
 - **Notifications** when Claude finishes or needs your confirmation.
 - **Optional Claude Code hooks** for exact status (thinking / running a tool / waiting for permission / error) and each conversation's context usage.
+- **Usage**: today's Claude Code tokens on the server (input / output / cache) by model and project, plus the last 7 days. Token counts only, no cost estimate.
 - **Texas Hold'em** against four bots while you wait, and a **pixel pet** that grows while Claude works (finished tasks earn chips).
 
 All traffic leaves from the server; the Mac only renders the UI. The server listens only on its Tailscale IP and localhost, behind a token.

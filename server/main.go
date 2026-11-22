@@ -31,6 +31,7 @@ import (
 	"claudehub/internal/store"
 	"claudehub/internal/term"
 	"claudehub/internal/tmux"
+	"claudehub/internal/usage"
 
 	"github.com/gorilla/websocket"
 )
@@ -51,6 +52,7 @@ type server struct {
 	mon     *tmux.Monitor
 	table   *poker.Table
 	pet     *pet.Pet
+	usage   *usage.Scanner
 	up      websocket.Upgrader
 }
 
@@ -80,6 +82,7 @@ func main() {
 
 	s := &server{dataDir: *data, command: *command, hub: hub.New(), mon: tmux.NewMonitor()}
 	s.mon.Hooks = tmux.NewHookTracker()
+	s.usage = usage.New(usage.DefaultRoot())
 	if err := os.MkdirAll(s.dataDir, 0o700); err != nil {
 		log.Fatal(err)
 	}
@@ -314,6 +317,7 @@ func (s *server) routes(mux *http.ServeMux) {
 		term.Serve(ws, name, uint16(c), uint16(rw))
 	})
 	mux.HandleFunc("GET /ws/events", s.events)
+	mux.HandleFunc("GET /api/usage", s.api(func(r *http.Request) (any, error) { return s.usage.Report(), nil }))
 	mux.HandleFunc("POST /api/hook", s.api(func(r *http.Request) (any, error) {
 		// only the local `claude-hub hook` client posts here
 		if host, _, _ := net.SplitHostPort(r.RemoteAddr); !net.ParseIP(host).IsLoopback() {

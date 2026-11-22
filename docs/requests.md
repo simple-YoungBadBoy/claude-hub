@@ -42,7 +42,9 @@
 
 **做法约束**：参考其思路自己实现（Go 服务端），不直接拷代码；若借鉴了具体算法，在 README 致谢并保留 MIT 署名。
 
-**状态**：用户确认做前三项（hooks 精确状态、上下文占用、宠物跟随状态）。已实现：`claude-hub hook` 客户端（只转发事件名/工具名/会话 ID，TMUX_PANE 对应会话）、`claude-hub hooks install|uninstall|status`（备份、只增删自己的条目）、Esc 打断不触发 Stop 时由读屏纠正、上下文 >200k 推断 1M 窗口、85% 提醒、宠物「着急」表情。修改用户 `~/.claude/settings.json` 必须由用户本人执行（auto mode 也会拦截 Claude 自己改）。用量统计页、桌面浮窗留待以后。
+**状态**：用户确认做前三项（hooks 精确状态、上下文占用、宠物跟随状态）。已实现：`claude-hub hook` 客户端（只转发事件名/工具名/会话 ID，TMUX_PANE 对应会话）、`claude-hub hooks install|uninstall|status`（备份、只增删自己的条目）、Esc 打断不触发 Stop 时由读屏纠正、上下文 >200k 推断 1M 窗口、85% 提醒、宠物「着急」表情。修改用户 `~/.claude/settings.json` 必须由用户本人执行（auto mode 也会拦截 Claude 自己改）。桌面浮窗留待以后。
+
+2026-11-22 用户确认做「今日用量」：`internal/usage` 增量读取 `~/.claude/projects` 下最近 7 天改动过的 jsonl（按消息 ID 去重，每个内容块会重复写一行 usage），首次扫描在本机 915MB 数据上约 3 秒、峰值 44MB，之后只读新增字节，最多 15 秒刷新一次；新增「📊 用量」标签：今日总量/输入/输出/缓存写入/缓存读取、子代理占比、按模型/项目、7 天柱状图。不做费用折算。
 
 ---
 

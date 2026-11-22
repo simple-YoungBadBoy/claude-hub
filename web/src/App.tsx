@@ -8,8 +8,9 @@ import NewSession from "./components/NewSession";
 import Terminal from "./components/Terminal";
 import Poker from "./components/Poker";
 import Pet, { MiniPet } from "./components/Pet";
+import Usage from "./components/Usage";
 
-type Tab = "chat" | "poker" | "pet";
+type Tab = "chat" | "poker" | "pet" | "usage";
 type Toast = { id: number; msg: string; err?: boolean };
 
 const load = <T,>(k: string, d: T): T => {
@@ -184,6 +185,9 @@ export default function App() {
           <button className={tab === "pet" ? "on" : ""} onClick={() => setTab("pet")}>
             🐾 {st.pet.name}
           </button>
+          <button className={tab === "usage" ? "on" : ""} onClick={() => setTab("usage")}>
+            📊 用量
+          </button>
           <span className="spacer" />
           <span className="chips" title="筹码：德州和宠物商店通用">
             🪙 {st.poker.stats.chips.toLocaleString()}
@@ -205,6 +209,7 @@ export default function App() {
               </div>
             )}
           </div>
+          {tab === "usage" && <Usage onToast={toast} />}
           {tab === "poker" && <Poker v={st.poker} onToast={toast} />}
           {tab === "pet" && <Pet pet={st.pet} foods={st.foods} hats={st.hats} chips={st.poker.stats.chips} signals={petSignals} onToast={toast} />}
         </div>
