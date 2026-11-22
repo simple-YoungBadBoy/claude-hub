@@ -271,6 +271,25 @@ try {
   await page.click(".insp-close");
   await page.waitForSelector(".inspector", { state: "detached" });
 
+  log("input bar: @ completes files of the session's folder, / completes commands");
+  mkdirSync(join(data, ".claude", "commands"), { recursive: true });
+  writeFileSync(join(data, ".claude", "commands", "hello.md"), "---\ndescription: 打个招呼\n---\nsay hi\n");
+  await page.click(".composer textarea");
+  await page.keyboard.type("看看 @no");
+  await page.waitForSelector('.sugg button.on:has-text("notes/")', { timeout: 5000 });
+  await page.keyboard.press("Tab"); // a directory keeps completing inside it
+  await page.waitForSelector('.sugg button.on:has-text("notes/todo.md")', { timeout: 5000 });
+  await page.keyboard.press("Enter"); // on a file: inserts, doesn't send
+  await page.waitForSelector(".sugg", { state: "detached" });
+  assert((await page.inputValue(".composer textarea")) === "看看 @notes/todo.md ", "file path inserted");
+  await page.fill(".composer textarea", "");
+  await page.keyboard.type("/hel");
+  await page.waitForSelector('.sugg button.on:has-text("/hello"):has-text("项目 · 打个招呼")', { timeout: 5000 });
+  assert(await page.locator('.sugg button:has-text("/help")').count(), "built-in commands listed too");
+  await page.keyboard.press("Enter"); // on a command: runs it
+  await until(() => screen(name).includes("got: /hello"), "command sent");
+  assert((await page.inputValue(".composer textarea")) === "", "composer cleared");
+
   log("hooks CLI: install/uninstall into the (temporary) Claude config");
   const hooksCli = (...a) => execFileSync(bin, ["hooks", ...a], { env, encoding: "utf8" });
   writeFileSync(join(claudeConfig, "settings.json"), JSON.stringify({ model: "opus", hooks: { Stop: [{ hooks: [{ type: "command", command: "say done" }] }] } }));

@@ -193,7 +193,9 @@ type Git struct {
 
 // git runs git read-only: no optional locks (Claude may be committing at the
 // same time), and no repo-configured helpers that would run programs.
-func git(dir string, args ...string) ([]byte, error) {
+func git(dir string, args ...string) ([]byte, error) { return gitCapped(dir, MaxDiff+1, args...) }
+
+func gitCapped(dir string, max int, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
 	base := []string{"-C", dir,
@@ -202,7 +204,7 @@ func git(dir string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "git", append(base, args...)...)
 	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0", "GIT_TERMINAL_PROMPT=0", "GIT_PAGER=cat", "LC_ALL=C")
 	var out, errb bytes.Buffer
-	cmd.Stdout = &limited{w: &out, n: MaxDiff + 1}
+	cmd.Stdout = &limited{w: &out, n: max}
 	cmd.Stderr = &limited{w: &errb, n: 4096}
 	err := cmd.Run()
 	if err != nil && out.Len() == 0 {

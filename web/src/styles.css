@@ -444,3 +444,10 @@ label.check input { width: auto; }
   .live-strip { flex-direction: column; align-items: stretch; gap: 4px; padding: 6px 8px; }
   .live-item { max-width: none; font-size: 12.5px; }
 }
+
+/* @file and /command completion in the input bar */
+.hist.sugg { gap: 1px; padding: 4px; }
+.hist.sugg button { border-color: transparent; background: none; padding: 6px 8px; font-size: 12.5px; }
+.hist.sugg button.on { background: var(--active-bg); border-color: var(--accent); }
+.hist.sugg b { font-family: "SF Mono", Menlo, monospace; font-weight: 600; }
+.sugg-icon { margin-right: 6px; }

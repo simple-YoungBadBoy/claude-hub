@@ -160,6 +160,27 @@ const QUICK: [string, string][] = [
   ["/resume", "恢复以前的对话"],
   ["/init", "生成 CLAUDE.md"],
 ];
+// built-in commands offered when the input starts with "/" (plus the
+// project's and user's own commands and skills from the server)
+const BUILTIN: [string, string][] = [
+  ...QUICK,
+  ["/review", "审查改动"],
+  ["/memory", "编辑记忆（CLAUDE.md）"],
+  ["/rewind", "回退到之前的某一步"],
+  ["/export", "导出对话"],
+  ["/permissions", "工具权限"],
+  ["/agents", "子代理"],
+  ["/mcp", "MCP 服务器"],
+  ["/hooks", "hooks 设置"],
+  ["/plugin", "插件"],
+  ["/add-dir", "添加工作目录"],
+  ["/config", "设置"],
+  ["/status", "版本、账号、模型"],
+  ["/doctor", "诊断安装问题"],
+  ["/help", "帮助"],
+];
+type SuggItem = { text: string; label: string; desc?: string; dir?: boolean };
+type Sugg = { kind: "file" | "cmd"; start: number; end: number; items: SuggItem[]; sel: number };
 // keys that go straight to Claude while the input bar is empty
 const PASS_EMPTY: Record<string, string> = { ArrowUp: "\x1b[A", ArrowDown: "\x1b[B", Tab: "\t" };
 
@@ -181,6 +202,12 @@ export default function Terminal({ session, info, visible, docked, onToast }: Pr
   const [hist, setHist] = useState<string[] | null>(null);
   const [quick, setQuick] = useState(false);
   const composing = useRef(false);
+  const [sugg, setSugg] = useState<Sugg | null>(null);
+  const suggRef = useRef<Sugg | null>(null);
+  suggRef.current = sugg;
+  const suggSeq = useRef(0);
+  const suggTimer = useRef<number>();
+  const cmds = useRef<{ at: number; list: { name: string; desc?: string }[] } | null>(null);
   const compEnd = useRef(0);
   const sendQ = useRef<Promise<unknown>>(Promise.resolve());
   const [answered, setAnswered] = useState("");
@@ -411,11 +438,111 @@ export default function Terminal({ session, info, visible, docked, onToast }: Pr
       }),
     );
   };
+  // "@path" and "/command" completion, like Claude Code's own input
+  const updateSugg = (box: HTMLTextAreaElement, refresh = true) => {
+    clearTimeout(suggTimer.current);
+    const pos = box.selectionStart;
+    const before = box.value.slice(0, pos);
+    const at = pos === box.selectionEnd ? before.match(/(?:^|\s)@([^\s@]*)$/) : null;
+    const slash = !at && pos === box.selectionEnd ? before.match(/^\/([^\s]*)$/) : null;
+    const n = ++suggSeq.current;
+    if (!at && !slash) {
+      if (suggRef.current) setSugg(null);
+      return;
+    }
+    const enc = encodeURIComponent;
+    if (at) {
+      const q = at[1];
+      suggTimer.current = window.setTimeout(() => {
+        api<{ files: string[] }>(`/api/sessions/${enc(session)}/complete?q=${enc(q)}`)
+          .then((r) => {
+            if (n !== suggSeq.current) return;
+            const items = r.files.map((f) => ({ text: "@" + f + (f.endsWith("/") ? "" : " "), label: f, dir: f.endsWith("/") }));
+            setSugg(items.length ? { kind: "file", start: pos - q.length - 1, end: pos, items, sel: 0 } : null);
+          })
+          .catch(() => {});
+      }, 100);
+      return;
+    }
+    const q = slash![1].toLowerCase();
+    const show = (list: { name: string; desc?: string }[]) => {
+      if (n !== suggSeq.current) return;
+      const hits = list
+        .filter((c) => c.name.toLowerCase().includes(q))
+        .sort((a, b) => Number(!a.name.toLowerCase().startsWith(q)) - Number(!b.name.toLowerCase().startsWith(q)))
+        .slice(0, 40);
+      setSugg(hits.length ? { kind: "cmd", start: 0, end: pos, items: hits.map((c) => ({ text: "/" + c.name + " ", label: "/" + c.name, desc: c.desc })), sel: 0 } : null);
+    };
+    const c = cmds.current;
+    if (c) show(c.list);
+    if (refresh && (!c || !suggRef.current || Date.now() - c.at > 30000)) { // refresh whenever the list opens
+      const builtin = BUILTIN.map(([name, desc]) => ({ name: name.slice(1), desc }));
+      api<{ commands: { name: string; desc?: string; source: string }[] }>(`/api/sessions/${enc(session)}/commands`)
+        .then((r) => {
+          const own = r.commands.map((x) => ({ name: x.name, desc: (x.source === "project" ? "项目 · " : "我的 · ") + (x.desc || "") }));
+          cmds.current = { at: Date.now(), list: [...own, ...builtin.filter((b) => !own.some((o) => o.name === b.name))] };
+          // keys typed meanwhile made this request stale: match what's typed now
+          if (draftRef.current && n !== suggSeq.current) updateSugg(draftRef.current, false);
+          else show(cmds.current.list);
+        })
+        .catch(() => {
+          cmds.current = { at: Date.now(), list: builtin };
+          show(builtin);
+        });
+    }
+  };
+  const acceptSugg = (i: number, send = false) => {
+    const sg = suggRef.current;
+    const box = draftRef.current;
+    if (!sg || !box || !sg.items[i]) return;
+    const it = sg.items[i];
+    box.focus();
+    box.setSelectionRange(sg.start, sg.end);
+    let ok = false;
+    try {
+      ok = document.execCommand("insertText", false, it.text);
+    } catch {
+      /* unsupported */
+    }
+    if (!ok) box.setRangeText(it.text, sg.start, sg.end, "end");
+    fitDraft(box);
+    setHasDraft(box.value.trim() !== "");
+    if (send) {
+      setSugg(null);
+      sendDraft();
+    } else if (!it.dir) setSugg(null); // a directory keeps completing inside it
+    if (!ok || it.dir) updateSugg(box);
+  };
+  useEffect(() => {
+    if (sugg) document.querySelector(".sugg button.on")?.scrollIntoView({ block: "nearest" });
+  }, [sugg]);
+
   const onDraftKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     // an IME is choosing characters: Enter/arrows belong to it (Safari sends
     // the confirming Enter right after compositionend, hence the time check)
     if (e.nativeEvent.isComposing || e.keyCode === 229 || composing.current || performance.now() - compEnd.current < 80) return;
     const box = e.currentTarget;
+    const sg = suggRef.current;
+    if (sg) {
+      const len = sg.items.length;
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        setSugg({ ...sg, sel: (sg.sel + (e.key === "ArrowDown" ? 1 : -1) + len) % len });
+        return;
+      }
+      const plain = !e.shiftKey && !e.altKey && !e.metaKey && !e.ctrlKey;
+      if (plain && (e.key === "Tab" || e.key === "Enter")) {
+        e.preventDefault();
+        // Enter on a command runs it (like Claude Code); Tab only fills it in to add arguments
+        acceptSugg(sg.sel, e.key === "Enter" && sg.kind === "cmd" && !coarse);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setSugg(null);
+        return;
+      }
+    }
     const empty = box.value === "";
     if (e.key === "Escape") {
       e.preventDefault();
@@ -614,6 +741,16 @@ export default function Terminal({ session, info, visible, docked, onToast }: Pr
               ))}
             </div>
           )}
+          {sugg && !hist && !quick && (
+            <div className="hist sugg">
+              {sugg.items.map((it, i) => (
+                <button key={it.label} type="button" className={i === sugg.sel ? "on" : ""} onPointerDown={(e) => e.preventDefault()} onClick={() => acceptSugg(i)}>
+                  {sugg.kind === "file" && <span className="sugg-icon">{it.dir ? "📁" : "📄"}</span>}
+                  <b>{it.label}</b> {it.desc && <span className="muted">{it.desc}</span>}
+                </button>
+              ))}
+            </div>
+          )}
           {hist && (
             <div className="hist">
               {hist.length === 0 && <div className="muted small">还没有发过消息</div>}
@@ -633,12 +770,15 @@ export default function Terminal({ session, info, visible, docked, onToast }: Pr
             onInput={(e) => {
               setHasDraft(e.currentTarget.value.trim() !== "");
               fitDraft(e.currentTarget);
+              if (!composing.current) updateSugg(e.currentTarget);
             }}
+            onBlur={() => setSugg(null)}
             onKeyDown={onDraftKey}
             onCompositionStart={() => (composing.current = true)}
-            onCompositionEnd={() => {
+            onCompositionEnd={(e) => {
               composing.current = false;
               compEnd.current = performance.now();
+              updateSugg(e.currentTarget);
             }}
             onPaste={(e) => {
               const files = imageFiles(e.clipboardData?.items);

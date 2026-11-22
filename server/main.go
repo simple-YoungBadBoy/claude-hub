@@ -395,6 +395,20 @@ func (s *server) routes(mux *http.ServeMux) {
 		}
 		return workspace.Read(cwd, r.URL.Query().Get("path"))
 	}))
+	mux.HandleFunc("GET /api/sessions/{name}/complete", s.api(func(r *http.Request) (any, error) {
+		cwd, _, err := s.locate(r)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"files": workspace.CompleteFiles(cwd, r.URL.Query().Get("q"), 30)}, nil
+	}))
+	mux.HandleFunc("GET /api/sessions/{name}/commands", s.api(func(r *http.Request) (any, error) {
+		cwd, _, err := s.locate(r)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"commands": workspace.Commands(cwd)}, nil
+	}))
 	mux.HandleFunc("GET /api/sessions/{name}/chat", s.api(func(r *http.Request) (any, error) {
 		_, tr, err := s.locate(r)
 		if err != nil {
