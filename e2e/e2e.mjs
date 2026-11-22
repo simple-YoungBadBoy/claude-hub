@@ -296,6 +296,12 @@ try {
     const man = await fetch(`${base}/manifest.webmanifest`);
     assert(man.ok && man.headers.get("content-type").includes("manifest+json"), "manifest served");
     assert((await man.json()).display === "standalone", "standalone PWA");
+    const sw = await fetch(`${base}/sw.js`);
+    assert(sw.ok && sw.headers.get("content-type").includes("javascript") && sw.headers.get("cache-control") === "no-cache", "service worker served fresh");
+    const push = await api("/api/push");
+    assert(push.available && push.key.length > 80, "web push key available");
+    const evil = await api("/api/push/subscribe", { endpoint: "https://evil.example/x", keys: { p256dh: "x", auth: "y" } });
+    assert(String(evil.error).includes("不支持的推送服务"), "push endpoints limited to browser push services");
     const icon = await fetch(`${base}/apple-touch-icon.png`);
     assert(icon.ok && icon.headers.get("content-type") === "image/png", "apple touch icon");
     assert(icon.headers.get("cache-control") === "no-cache", "icons are revalidated, not cached forever");

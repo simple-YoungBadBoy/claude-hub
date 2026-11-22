@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- iPhone lock-screen notifications (Web Push): in the home-screen app opened over HTTPS, tap "🔔 开启锁屏通知" in the session list. You get "finished / needs you / error" with the session's title — not while you're looking at an open page. Payloads are end-to-end encrypted; only browser push services are allowed.
 - Typing: an input bar is now on by default on Mac and phone — text appears instantly (no round trip to the server), the native IME works normally, Enter sends (Shift+Enter for a newline, Enter while picking IME candidates never sends), and with an empty bar ↑↓ / Tab / Enter go to Claude; Esc and Ctrl-C interrupt anytime. Toggle with "⌨ 输入栏".
 - Sending is reliable: the server types the message, waits until it shows in Claude's input, then presses Enter; `/commands` still run, multi-line text keeps its newlines.
 - Esc reacts at once: the hub lowers tmux's `escape-time` from the 500 ms default to 10 ms (runtime only, your own setting is respected; `-tmux-escape-time=-1` to opt out).

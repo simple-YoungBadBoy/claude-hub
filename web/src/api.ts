@@ -55,6 +55,7 @@ export function connectEvents(onMsg: Handler, onConn: (up: boolean) => void) {
     ws.onopen = () => {
       delay = 500;
       onConn(true);
+      looking();
     };
     ws.onmessage = (e) => {
       try {
@@ -71,10 +72,21 @@ export function connectEvents(onMsg: Handler, onConn: (up: boolean) => void) {
       delay = Math.min(delay * 2, 8000);
     };
   };
+  // Tell the server someone is looking at this page, so it doesn't also
+  // push the same event to the phone's lock screen.
+  const looking = () => {
+    if (ws?.readyState === WebSocket.OPEN && document.visibilityState === "visible" && document.hasFocus()) ws.send("looking");
+  };
+  const beat = window.setInterval(looking, 20000);
+  window.addEventListener("focus", looking);
+  document.addEventListener("visibilitychange", looking);
   open();
   return () => {
     stopped = true;
     clearTimeout(timer);
+    clearInterval(beat);
+    window.removeEventListener("focus", looking);
+    document.removeEventListener("visibilitychange", looking);
     ws?.close();
   };
 }

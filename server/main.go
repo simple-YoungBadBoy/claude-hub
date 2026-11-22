@@ -25,6 +25,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -36,6 +37,7 @@ import (
 	"claudehub/internal/term"
 	"claudehub/internal/tmux"
 	"claudehub/internal/usage"
+	"claudehub/internal/webpush"
 
 	"github.com/gorilla/websocket"
 )
@@ -58,6 +60,8 @@ type server struct {
 	table   *poker.Table
 	pet     *pet.Pet
 	usage   *usage.Scanner
+	push    *webpush.Pusher // nil if the VAPID key couldn't be set up
+	looked  atomic.Int64    // unix ms when an open page last said someone is looking
 	up      websocket.Upgrader
 }
 
@@ -113,6 +117,12 @@ func main() {
 	s.pet.Persist = func(v pet.State) { logErr(store.Save(s.path("pet.json"), v)) }
 	s.pet.OnChange = func(v pet.State) { s.hub.Publish("pet", v) }
 
+	if p, err := webpush.Open(s.path("vapid.pem"), s.path("push.json")); err != nil {
+		log.Printf("web push disabled: %v", err)
+	} else {
+		s.push = p
+	}
+
 	s.mon.OnList = func(l []tmux.Session) { s.hub.Publish("sessions", l) }
 	s.mon.OnTransition = func(name, from, to string) {
 		s.hub.Publish("status", map[string]string{"name": name, "from": from, "to": to})
@@ -124,6 +134,7 @@ func main() {
 		case to == "error":
 			s.pet.Say("呜… " + name + " 出错了")
 		}
+		go s.pushTransition(name, from, to)
 	}
 	s.mon.OnTick = s.pet.Tick
 	go s.mon.Run(2 * time.Second)
@@ -355,6 +366,41 @@ func (s *server) routes(mux *http.ServeMux) {
 	}))
 	mux.HandleFunc("POST /api/upload/{name}", s.api(s.upload))
 
+	// Web Push (lock-screen notifications on a home-screen iPhone app)
+	mux.HandleFunc("GET /api/push", s.api(func(r *http.Request) (any, error) {
+		if s.push == nil {
+			return map[string]any{"available": false}, nil
+		}
+		return map[string]any{"available": true, "key": s.push.PublicKey(), "devices": s.push.Count(), "subscribed": s.push.Has(r.URL.Query().Get("endpoint"))}, nil
+	}))
+	mux.HandleFunc("POST /api/push/subscribe", s.api(func(r *http.Request) (any, error) {
+		var sub webpush.Subscription
+		if err := decode(r, &sub); err != nil {
+			return nil, err
+		}
+		if s.push == nil {
+			return nil, errors.New("服务器没能启用推送")
+		}
+		return nil, s.push.Add(sub)
+	}))
+	mux.HandleFunc("POST /api/push/unsubscribe", s.api(func(r *http.Request) (any, error) {
+		var body struct{ Endpoint string }
+		if err := decode(r, &body); err != nil {
+			return nil, err
+		}
+		if s.push != nil {
+			s.push.Remove(body.Endpoint)
+		}
+		return nil, nil
+	}))
+	mux.HandleFunc("POST /api/push/test", s.api(func(r *http.Request) (any, error) {
+		if s.push == nil || s.push.Count() == 0 {
+			return nil, errors.New("还没有设备开启推送")
+		}
+		go s.push.SendAll(webpush.Message{Title: "🔔 Claude Hub", Body: "锁屏通知已开启", Tag: "test"})
+		return nil, nil
+	}))
+
 	mux.HandleFunc("GET /ws/term/{name}", func(w http.ResponseWriter, r *http.Request) {
 		if !s.authed(r) {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -441,6 +487,45 @@ func (s *server) state() map[string]any {
 	}
 }
 
+// pushTransition sends "finished / needs you / error" to subscribed devices,
+// unless someone is looking at an open page right now (it chimes there).
+func (s *server) pushTransition(name, from, to string) {
+	if s.push == nil || s.push.Count() == 0 || time.Since(time.UnixMilli(s.looked.Load())) < 45*time.Second {
+		return
+	}
+	var sess tmux.Session
+	for _, x := range s.mon.Sessions() {
+		if x.Name == name {
+			sess = x
+		}
+	}
+	body := name
+	if sess.Summary != nil && sess.Summary.Title != "" {
+		body += " · " + sess.Summary.Title
+	}
+	m := webpush.Message{Session: name, Tag: name}
+	switch {
+	case from == "working" && to == "idle":
+		m.Title = "✅ Claude 完成了"
+		if sess.Summary != nil && sess.Summary.Last != "" {
+			body += "\n" + sess.Summary.Last
+		}
+	case to == "waiting":
+		m.Title = "❓ Claude 需要你确认"
+		if sess.Prompt != nil {
+			body += "\n" + sess.Prompt.Question
+		} else if sess.Activity != "" {
+			body += "\n" + sess.Activity
+		}
+	case to == "error":
+		m.Title = "❌ Claude 出错了"
+	default:
+		return
+	}
+	m.Body = body
+	s.push.SendAll(m)
+}
+
 func (s *server) events(w http.ResponseWriter, r *http.Request) {
 	if !s.authed(r) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -463,8 +548,12 @@ func (s *server) events(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		defer close(done)
 		for {
-			if _, _, err := ws.ReadMessage(); err != nil {
+			_, msg, err := ws.ReadMessage()
+			if err != nil {
 				return
+			}
+			if string(msg) == "looking" { // a visible, focused page
+				s.looked.Store(time.Now().UnixMilli())
 			}
 		}
 	}()

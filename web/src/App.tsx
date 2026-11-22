@@ -109,6 +109,23 @@ export default function App() {
     }, setOnline);
   }, [auth]);
 
+  // a tapped notification opens its session (?s=… on launch, or a message
+  // from the service worker when the app is already open)
+  useEffect(() => {
+    if (!st) return;
+    const want = new URLSearchParams(location.search).get("s");
+    if (want && st.sessions.some((x) => x.name === want)) {
+      open(want);
+      history.replaceState(null, "", "/");
+    }
+    const onMsg = (e: MessageEvent) => {
+      const name = (e.data as { open?: string })?.open;
+      if (name) open(name);
+    };
+    navigator.serviceWorker?.addEventListener("message", onMsg);
+    return () => navigator.serviceWorker?.removeEventListener("message", onMsg);
+  }, [!!st]);
+
   // drop terminals for sessions that no longer exist
   useEffect(() => {
     if (!st) return;
@@ -147,6 +164,7 @@ export default function App() {
         <Sidebar
           sessions={st.sessions}
           hooks={st.hooks}
+          onToast={toast}
           active={tab === "chat" ? active : null}
           onOpen={open}
           onNew={() => {

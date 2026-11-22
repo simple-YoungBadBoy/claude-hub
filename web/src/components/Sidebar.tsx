@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { HubState, Session } from "../types";
+import PushToggle from "./PushToggle";
 
 type Props = {
   sessions: Session[];
@@ -9,6 +10,7 @@ type Props = {
   onNew: () => void;
   onKill: (name: string) => void;
   onRename: (name: string, to: string) => void;
+  onToast: (msg: string, err?: boolean) => void;
 };
 
 const statusText: Record<string, string> = { working: "工作中", waiting: "等你确认", idle: "空闲", error: "出错", "": "" };
@@ -107,6 +109,7 @@ export default function Sidebar(p: Props) {
           状态靠读屏识别 · 装上 hooks 更准，还能看上下文占用
         </div>
       )}
+      <PushToggle onToast={p.onToast} />
     </div>
   );
 }
