@@ -24,6 +24,7 @@
 - 推荐做法：**PWA**。iPhone 装 Tailscale，在 Safari 打开 hub，「添加到主屏幕」就成了一个 App 图标、全屏使用。不用上架 App Store，不用 Apple 开发者账号（$99/年），更新随服务器部署自动生效，开源用户零成本。
 - 要做的事：手机布局（侧栏变抽屉、底部标签栏）；终端适配触屏（快捷键条：Esc、Tab、↑↓、Ctrl-C、回车、Shift+Enter，方便选项确认）；从相册选图上传（现有上传接口直接复用）；德州、宠物、用量页适配窄屏。
 - HTTPS（可选，推荐）：用 `tailscale serve` 拿到 `https://<机器名>.ts.net` 的正规证书，流量仍只在 tailnet 内（不是 funnel，不暴露公网）。有了 HTTPS 才能用剪贴板 API、完整的 PWA 能力和 iOS 网页推送（iOS 16.4+，需加到主屏幕）。不开 HTTPS 也能用，只是少了这几项。
+- 2026-11-22 实际开通：服务器 443 已被 Caddy 占用，改用 `tailscale serve --bg --https=8443`；首次需用户在后台点 Enable serve；首个请求签证书约 30 秒。
 - 不推荐：原生 iOS App（Swift 或 Tauri mobile）。要开发者账号和签名，每次更新都要重装，成本高，收益只是推送更稳一些。
 - 风险：iOS 虚拟键盘配合 xterm.js 体验一般（中文输入法、方向键），靠快捷键条和一个单独的「输入框发送」模式缓解；手机上如果开了代理类 App，同样要绕过 `100.64.0.0/10,*.ts.net`。
 

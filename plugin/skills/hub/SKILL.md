@@ -53,8 +53,9 @@ Check the Mac can reach the server: `curl -s -o /dev/null -w '%{http_code}\n' ht
 1. On the iPhone: install the Tailscale app and sign in to the same tailnet.
 2. HTTPS (recommended — enables the clipboard API, a proper full-screen web app and, later, push notifications). It stays inside the tailnet; **never use `tailscale funnel`**, which would publish the hub on the internet.
    - The user enables **MagicDNS** and **HTTPS Certificates** in the Tailscale admin console (https://login.tailscale.com/admin/dns). Check with `tailscale status --json | python3 -c 'import json,sys; print(json.load(sys.stdin).get("CertDomains"))'` — it must list `<machine>.<tailnet>.ts.net`.
-   - On the server, after asking: `sudo tailscale serve --bg http://127.0.0.1:7788` (persists across reboots; `tailscale serve status` shows the URL). Without sudo the user can first run `sudo tailscale set --operator=$USER`.
-   - URL: `https://<machine>.<tailnet>.ts.net`
+   - If `tailscale serve` says "Serve is not enabled on your tailnet", it prints a `login.tailscale.com/f/serve?...` link: give it to the user to click **Enable** (only they can), then run serve again.
+   - On the server, after asking: `sudo tailscale serve --bg --https=8443 http://127.0.0.1:7788` (persists across reboots; `tailscale serve status` shows the URL). Port 8443 avoids clashing with a web server (Caddy/nginx) already on 443; plain `--bg` (port 443) is fine when nothing else uses it. Without sudo the user can first run `sudo tailscale set --operator=$USER`.
+   - URL: `https://<machine>.<tailnet>.ts.net:8443`. The very first request can take ~30 s while the certificate is issued.
    - Without HTTPS, `http://<tailscale IP>:7788` works too (copy then needs a tap on the "点这里复制" button).
 3. In Safari open the URL, log in with the token, then Share → **Add to Home Screen**.
 4. If the phone runs a proxy/VPN-style app besides Tailscale, it must bypass `100.64.0.0/10` and `*.ts.net` (same as Clash on the Mac).
@@ -69,7 +70,7 @@ Check the Mac can reach the server: `curl -s -o /dev/null -w '%{http_code}\n' ht
 | Symptom | Cause / fix |
 |---|---|
 | Browser page blank or "can't connect", but `curl` works | A **system proxy** (Clash, Surge, Shadowrocket…) sends 100.x / `*.ts.net` traffic out to the internet. Add `100.64.0.0/10,*.ts.net` to the proxy's bypass list (Clash Verge: Settings → System Proxy → bypass; config key `system_proxy_bypass` in `verge.yaml`). Ask first, back the config up, then restart the proxy app. The Mac app itself is not affected: it forwards through `127.0.0.1:17788`. |
-| iPhone page blank / can't connect | Tailscale on the phone must be connected; for HTTPS check `tailscale serve status` on the server and that the tailnet has HTTPS certificates enabled. |
+| iPhone page blank / can't connect | Tailscale on the phone must be connected and signed in to the same account (the phone shows up in `tailscale status` on the server); for HTTPS check `tailscale serve status` on the server and that the tailnet has HTTPS certificates enabled. |
 | App shows "连不上服务器" page | Tailscale off on the Mac, server down (`systemctl --user status claude-hub`, `journalctl --user -u claude-hub -n 50`), or wrong URL (⌘, to change). |
 | Login says token wrong | Token is `~/claude-hub/data/token` on the server (whitespace is trimmed). |
 | Sessions missing from the list | Sessions not running `claude` are listed under "其他 tmux 会话". Only the default tmux server is scanned (not `tmux -L <name>` sockets), and the service must run as the same user as your tmux. |
