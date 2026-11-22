@@ -2,20 +2,21 @@ import { useState } from "react";
 
 type Props = {
   dirs: string[];
-  onCreate: (name: string, dir: string) => Promise<void>;
+  onCreate: (name: string, dir: string, cont: boolean) => Promise<void>;
   onClose: () => void;
 };
 
 export default function NewSession({ dirs, onCreate, onClose }: Props) {
   const [name, setName] = useState("");
   const [dir, setDir] = useState(dirs[0] ?? "~");
+  const [cont, setCont] = useState(false);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const submit = async () => {
     setBusy(true);
     setErr("");
     try {
-      await onCreate(name, dir);
+      await onCreate(name, dir, cont);
     } catch (e) {
       setErr((e as Error).message);
       setBusy(false);
@@ -53,6 +54,10 @@ export default function NewSession({ dirs, onCreate, onClose }: Props) {
             </button>
           ))}
         </div>
+        <label className="check">
+          <input type="checkbox" checked={cont} onChange={(e) => setCont(e.target.checked)} />
+          接着这个目录上次的对话（claude --continue）
+        </label>
         {err && <div className="error">{err}</div>}
         <div className="modal-actions">
           <button type="button" className="ghost" onClick={onClose}>

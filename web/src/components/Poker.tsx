@@ -51,7 +51,8 @@ export default function Poker({ v, onToast }: { v: PokerView; onToast: (m: strin
   // keyboard: F fold, C check/call, R raise, Space/N next hand
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement).tagName === "INPUT") return;
+      const t = e.target as HTMLElement;
+      if (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable || e.metaKey || e.ctrlKey) return; // typing elsewhere (input bar, terminal)
       if (between && (e.key === "n" || e.key === " ")) {
         e.preventDefault();
         void send("start");

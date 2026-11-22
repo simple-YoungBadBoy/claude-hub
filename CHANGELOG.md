@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- New look options: a light "paper" theme (☀️ / 🌙 in the top bar), sessions grouped by project folder with a ＋ to start another one there, sessions needing you sorted first, and how long each has been running.
+- On wide screens the active terminal stays docked on the right while you play poker or check the pet / usage (▥ to hide it).
+- Input bar ⚡: one tap for /compact, /clear, /model, /effort, /context, /usage, /resume, /init.
+- ⌘1–9 (or Ctrl+1–9) jumps to a session.
+- New session: "接着这个目录上次的对话" starts `claude --continue`.
+- Fix: after renaming the open session the terminal no longer disappears.
 - iPhone lock-screen notifications (Web Push): in the home-screen app opened over HTTPS, tap "🔔 开启锁屏通知" in the session list. You get "finished / needs you / error" with the session's title — not while you're looking at an open page. Payloads are end-to-end encrypted; only browser push services are allowed.
 - Typing: an input bar is now on by default on Mac and phone — text appears instantly (no round trip to the server), the native IME works normally, Enter sends (Shift+Enter for a newline, Enter while picking IME candidates never sends), and with an empty bar ↑↓ / Tab / Enter go to Claude; Esc and Ctrl-C interrupt anytime. Toggle with "⌨ 输入栏".
 - Sending is reliable: the server types the message, waits until it shows in Claude's input, then presses Enter; `/commands` still run, multi-line text keeps its newlines.

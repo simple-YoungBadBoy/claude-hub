@@ -7,7 +7,7 @@ type Props = {
   hooks: HubState["hooks"];
   active: string | null;
   onOpen: (name: string) => void;
-  onNew: () => void;
+  onNew: (dir?: string) => void;
   onKill: (name: string) => void;
   onRename: (name: string, to: string) => void;
   onToast: (msg: string, err?: boolean) => void;
@@ -34,10 +34,31 @@ function shortPath(p: string) {
   return parts.length > 2 ? "…/" + parts.slice(-2).join("/") : p;
 }
 
+const rank: Record<string, number> = { waiting: 0, error: 1, working: 2, idle: 3, "": 4 };
+
+/** Claude sessions grouped by project directory, the ones that need you first. */
+export function groupSessions(sessions: Session[]) {
+  const by = new Map<string, Session[]>();
+  for (const s of sessions.filter((x) => x.claude)) by.set(s.path, [...(by.get(s.path) ?? []), s]);
+  const order = (a: Session, b: Session) => rank[a.status] - rank[b.status] || b.created - a.created;
+  const groups = [...by.entries()].map(([dir, list]) => ({ dir, list: list.sort(order) }));
+  return groups.sort((a, b) => order(a.list[0], b.list[0]));
+}
+
+function age(created: number) {
+  const m = Math.max(0, Math.floor((Date.now() / 1000 - created) / 60));
+  return m < 60 ? `${m}分` : m < 24 * 60 ? `${Math.floor(m / 60)}时` : `${Math.floor(m / 1440)}天`;
+}
+
+function base(p: string) {
+  return p.split("/").filter(Boolean).pop() || p || "/";
+}
+
 export default function Sidebar(p: Props) {
   const [editing, setEditing] = useState<string | null>(null);
-  const claude = p.sessions.filter((s) => s.claude);
+  const groups = groupSessions(p.sessions);
   const others = p.sessions.filter((s) => !s.claude);
+  const keyOf = new Map(groups.flatMap((g) => g.list).map((s, i) => [s.name, i + 1]));
   const row = (s: Session) => (
     <div
       key={s.name}
@@ -73,7 +94,16 @@ export default function Sidebar(p: Props) {
           </div>
         )}
         <div className="session-sub" title={s.activity || undefined}>
-          {s.claude ? s.activity || statusText[s.status] : s.command} · {shortPath(s.path)}
+          {s.claude ? (
+            <>
+              {s.activity || statusText[s.status]} · ⏱ {age(s.created)}
+              {(keyOf.get(s.name) ?? 99) <= 9 && <kbd className="desktop-only">⌘{keyOf.get(s.name)}</kbd>}
+            </>
+          ) : (
+            <>
+              {s.command} · {shortPath(s.path)}
+            </>
+          )}
         </div>
         {s.claude && s.context && <ContextBar c={s.context} />}
       </div>
@@ -91,12 +121,23 @@ export default function Sidebar(p: Props) {
   );
   return (
     <div className="sessions">
-      <button className="primary new-btn" onClick={p.onNew}>
+      <button className="primary new-btn" onClick={() => p.onNew()}>
         ＋ 新对话
       </button>
       <div className="session-list">
-        {claude.length === 0 && <div className="empty">还没有 Claude 会话</div>}
-        {claude.map(row)}
+        {groups.length === 0 && <div className="empty">还没有 Claude 会话</div>}
+        {groups.map((g) => (
+          <div className="project" key={g.dir}>
+            <div className="project-head" title={g.dir}>
+              <span className="project-name">📁 {base(g.dir)}</span>
+              <span className="project-count">{g.list.length}</span>
+              <button className="icon" title={`在 ${g.dir} 里新开一个对话`} onClick={() => p.onNew(g.dir)}>
+                ＋
+              </button>
+            </div>
+            {g.list.map(row)}
+          </div>
+        ))}
         {others.length > 0 && (
           <div className="session-group" title="服务器上直接开的 tmux 会话（没在运行 claude）">
             其他 tmux 会话（{others.length}）

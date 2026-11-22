@@ -319,12 +319,19 @@ func (s *server) routes(mux *http.ServeMux) {
 	})
 
 	mux.HandleFunc("POST /api/sessions", s.api(func(r *http.Request) (any, error) {
-		var body struct{ Name, Dir string }
+		var body struct {
+			Name, Dir string
+			Continue  bool // resume the directory's last conversation
+		}
 		if err := decode(r, &body); err != nil {
 			return nil, err
 		}
 		dir := expandHome(strings.TrimSpace(body.Dir))
-		name, err := tmux.Create(body.Name, dir, s.command)
+		command := s.command
+		if body.Continue {
+			command += " --continue"
+		}
+		name, err := tmux.Create(body.Name, dir, command)
 		if err != nil {
 			return nil, err
 		}

@@ -6,22 +6,52 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
 import { api, upload, wsURL } from "../api";
 import type { Session } from "../types";
+import { getTheme, onTheme, type Theme } from "../theme";
 
 type Props = {
   session: string;
   info?: Session;
   visible: boolean;
+  docked?: boolean; // shown beside another tab: don't steal the keyboard
   onToast: (msg: string, err?: boolean) => void;
 };
 
-const theme = {
-  background: "#161412",
-  foreground: "#e8e2da",
-  cursor: "#e07a4f",
-  selectionBackground: "#e07a4f55",
-  black: "#1d1b19",
-  brightBlack: "#6b6560",
+const themes = {
+  dark: {
+    background: "#161412",
+    foreground: "#e8e2da",
+    cursor: "#e07a4f",
+    selectionBackground: "#e07a4f55",
+    black: "#1d1b19",
+    brightBlack: "#6b6560",
+  },
+  // paper: Claude Code draws some text in fixed light greys, so xterm's
+  // minimum contrast ratio darkens anything unreadable on the cream ground
+  light: {
+    background: "#fbf8f2",
+    foreground: "#2d2823",
+    cursor: "#d2683c",
+    cursorAccent: "#fbf8f2",
+    selectionBackground: "#d2683c40",
+    black: "#2d2823",
+    red: "#b8402f",
+    green: "#3b7d3f",
+    yellow: "#8f6a12",
+    blue: "#2f5f9e",
+    magenta: "#8a4a8f",
+    cyan: "#2c7a7d",
+    white: "#6b6158",
+    brightBlack: "#8b8176",
+    brightRed: "#c94a4a",
+    brightGreen: "#3f9a5c",
+    brightYellow: "#a87c14",
+    brightBlue: "#3a6fb5",
+    brightMagenta: "#9c58a2",
+    brightCyan: "#338c8f",
+    brightWhite: "#3d3630",
+  },
 };
+const termTheme = (t: Theme) => ({ theme: themes[t], minimumContrastRatio: t === "light" ? 4.5 : 1 });
 
 /** Decode an OSC 52 payload ("c;<base64>") to text; null for queries/garbage. */
 export function osc52Text(data: string): string | null {
@@ -117,10 +147,21 @@ function saveBarPref(on: boolean) {
   }
 }
 const coarse = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
+// one-tap Claude Code commands from the input bar (⚡)
+const QUICK: [string, string][] = [
+  ["/compact", "压缩上下文"],
+  ["/clear", "清空对话（会丢掉当前上下文）"],
+  ["/model", "换模型"],
+  ["/effort", "思考强度"],
+  ["/context", "看上下文占用"],
+  ["/usage", "看额度"],
+  ["/resume", "恢复以前的对话"],
+  ["/init", "生成 CLAUDE.md"],
+];
 // keys that go straight to Claude while the input bar is empty
 const PASS_EMPTY: Record<string, string> = { ArrowUp: "\x1b[A", ArrowDown: "\x1b[B", Tab: "\t" };
 
-export default function Terminal({ session, info, visible, onToast }: Props) {
+export default function Terminal({ session, info, visible, docked, onToast }: Props) {
   const box = useRef<HTMLDivElement>(null);
   const termRef = useRef<XTerm | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -136,6 +177,7 @@ export default function Terminal({ session, info, visible, onToast }: Props) {
   const draftRef = useRef<HTMLTextAreaElement>(null);
   const [hasDraft, setHasDraft] = useState(false);
   const [hist, setHist] = useState<string[] | null>(null);
+  const [quick, setQuick] = useState(false);
   const composing = useRef(false);
   const compEnd = useRef(0);
   const sendQ = useRef<Promise<unknown>>(Promise.resolve());
@@ -157,7 +199,7 @@ export default function Terminal({ session, info, visible, onToast }: Props) {
       macOptionClickForcesSelection: true,
       allowProposedApi: true,
       scrollback: 5000,
-      theme,
+      ...termTheme(getTheme()),
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
@@ -176,6 +218,7 @@ export default function Terminal({ session, info, visible, onToast }: Props) {
     }
     termRef.current = term;
     fitRef.current = fit;
+    const offTheme = onTheme((t) => (term.options = termTheme(t)));
 
     const send = (o: object) => {
       const ws = wsRef.current;
@@ -293,6 +336,7 @@ export default function Terminal({ session, info, visible, onToast }: Props) {
       el.removeEventListener("mousedown", onDown, true);
       el.removeEventListener("mouseup", onUp, true);
       wsRef.current?.close();
+      offTheme();
       term.dispose();
     };
   }, [session]);
@@ -309,7 +353,7 @@ export default function Terminal({ session, info, visible, onToast }: Props) {
     };
     const raf = requestAnimationFrame(() => {
       doFit();
-      focusInput();
+      if (!docked) focusInput();
     });
     const ro = new ResizeObserver(doFit);
     if (box.current) ro.observe(box.current);
@@ -317,7 +361,7 @@ export default function Terminal({ session, info, visible, onToast }: Props) {
       cancelAnimationFrame(raf);
       ro.disconnect();
     };
-  }, [visible]);
+  }, [visible, docked]);
 
   const sendInput = (d: string) => {
     const ws = wsRef.current;
@@ -366,8 +410,10 @@ export default function Terminal({ session, info, visible, onToast }: Props) {
     const empty = box.value === "";
     if (e.key === "Escape") {
       e.preventDefault();
-      if (hist) setHist(null);
-      else sendInput("\x1b"); // interrupt Claude / close its menu, even mid-draft
+      if (hist || quick) {
+        setHist(null);
+        setQuick(false);
+      } else sendInput("\x1b"); // interrupt Claude / close its menu, even mid-draft
       return;
     }
     if (e.key === "c" && e.ctrlKey && !e.metaKey && box.selectionStart === box.selectionEnd) {
@@ -533,6 +579,26 @@ export default function Terminal({ session, info, visible, onToast }: Props) {
             sendDraft();
           }}
         >
+          {quick && (
+            <div className="hist quick">
+              {QUICK.map(([cmd, what]) => (
+                <button
+                  key={cmd}
+                  type="button"
+                  onPointerDown={(e) => e.preventDefault()}
+                  onClick={() => {
+                    setQuick(false);
+                    if (cmd === "/clear" && !confirm("清空这个会话的对话？当前上下文会丢掉。")) return;
+                    sendQ.current = sendQ.current.then(() =>
+                      api(`/api/sessions/${encodeURIComponent(session)}/send`, { text: cmd }).catch((e) => onToast(`发送失败：${(e as Error).message}`, true)),
+                    );
+                  }}
+                >
+                  <b>{cmd}</b> <span className="muted">{what}</span>
+                </button>
+              ))}
+            </div>
+          )}
           {hist && (
             <div className="hist">
               {hist.length === 0 && <div className="muted small">还没有发过消息</div>}
@@ -547,7 +613,8 @@ export default function Terminal({ session, info, visible, onToast }: Props) {
             rows={1}
             ref={draftRef}
             enterKeyHint={coarse ? "enter" : "send"}
-            placeholder={coarse ? "给 Claude 发消息 · 可用 🎤 听写" : "给 Claude 发消息 · 回车发送，Shift+回车换行 · 空着时 ↑↓ Tab 回车直接给终端，Esc 打断"}
+            placeholder={coarse ? "给 Claude 发消息 · 可用 🎤 听写" : "给 Claude 发消息 · 回车发送，Shift+回车换行"}
+            title={coarse ? undefined : "回车发送，Shift+回车换行 · 输入框空着时 ↑↓ Tab 回车直接给终端 · Esc 打断 Claude · ⌘1–9 切换会话"}
             onInput={(e) => {
               setHasDraft(e.currentTarget.value.trim() !== "");
               fitDraft(e.currentTarget);
@@ -568,10 +635,25 @@ export default function Terminal({ session, info, visible, onToast }: Props) {
           />
           <button
             type="button"
+            className={`ghost hist-btn ${quick ? "on" : ""}`}
+            title="常用命令"
+            onPointerDown={(e) => e.preventDefault()}
+            onClick={() => {
+              setHist(null);
+              setQuick((q) => !q);
+            }}
+          >
+            ⚡
+          </button>
+          <button
+            type="button"
             className={`ghost hist-btn ${hist ? "on" : ""}`}
             title="最近发过的消息"
             onPointerDown={(e) => e.preventDefault()}
-            onClick={() => setHist((h) => (h ? null : loadHist()))}
+            onClick={() => {
+              setQuick(false);
+              setHist((h) => (h ? null : loadHist()));
+            }}
           >
             🕘
           </button>

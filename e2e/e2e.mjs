@@ -8,7 +8,7 @@
 import { spawn, execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, mkdirSync, writeFileSync, existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, dirname } from "node:path";
+import { basename, join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 
@@ -239,8 +239,26 @@ try {
   await until(() => tmux("ls").includes("renamed:"), "renamed in tmux");
   await page.waitForSelector(".session >> text=renamed");
 
-  log("poker: play hands to showdown");
+  log("sidebar: sessions grouped by project, ＋ opens a new session in that project");
+  await page.waitForSelector(`.project-head:has-text("${basename(data)}")`);
+  await page.click(`.project-head:has-text("${basename(data)}") button`);
+  assert((await page.inputValue(".modal input >> nth=1")) === data, "project ＋ prefills its directory");
+  await page.click('.modal button:has-text("取消")');
+
+  log("input bar ⚡ quick commands are typed into Claude");
+  await page.click('.composer button:has-text("⚡")');
+  await page.click('.hist.quick button:has-text("/compact")');
+  await until(() => screen("renamed").includes("got: /compact"), "quick command delivered");
+
+  log("new session can continue the directory's last conversation");
+  const cont = await api("/api/sessions", { name: "cont", dir: data, continue: true });
+  await until(() => tmux("list-panes", "-t", `=${cont.name}:`, "-F", "#{pane_start_command}").includes("--continue"), "started with --continue");
+  tmux("kill-session", "-t", `=${cont.name}`);
+
+  log("poker: play hands to showdown (terminal docked on the right)");
   await page.click('nav.tabs button:has-text("德州")');
+  await page.waitForSelector(".terms.docked", { timeout: 5000 });
+  assert(await page.locator(".terms.docked .term-box").isVisible(), "active terminal stays visible beside the game");
   for (let hand = 0; hand < 3; hand++) {
     await page.click('.actions button.primary:has-text("开始"), .actions button.primary:has-text("下一手")');
     // bots "think" 0.7–1.6s per action, so a hand can take ~30s
@@ -260,6 +278,18 @@ try {
     assert(sum > 0, "chips present");
   }
   await page.screenshot({ path: join(out, "2-poker.png") });
+
+  log("⌘1 jumps to the first session; light theme");
+  await page.keyboard.press("Meta+1");
+  await page.waitForSelector('nav.tabs button.on:has-text("对话")');
+  await page.click(".theme-btn");
+  assert((await page.evaluate(() => document.documentElement.dataset.theme)) === "light", "light theme on");
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: join(out, "6-light.png") });
+  await page.click('nav.tabs button:has-text("德州")');
+  await page.screenshot({ path: join(out, "6-light-poker.png") });
+  await page.click(".theme-btn");
+  assert((await page.evaluate(() => document.documentElement.dataset.theme)) === "dark", "back to dark");
 
   log("usage: today's tokens from transcripts, duplicates counted once");
   {
@@ -335,7 +365,7 @@ try {
     assert((await m.inputValue(".composer textarea")) === "", "composer cleared after send");
     assert(String(await m.evaluate(() => window.__clearedBy)).startsWith("delete"), "composer cleared as an edit the keyboard sees (not a script value write)");
     log("composer history: refill a sent message");
-    await m.tap(".composer .hist-btn");
+    await m.tap('.composer .hist-btn:has-text("🕘")');
     await m.tap('.hist button:has-text("from phone 手机")');
     assert((await m.inputValue(".composer textarea")) === "from phone 手机", "history refills the composer");
     assert(!(await m.locator(".composer button.primary").isDisabled()), "send enabled after refill");

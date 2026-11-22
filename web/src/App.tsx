@@ -3,7 +3,8 @@ import { api, connectEvents, Unauthorized } from "./api";
 import type { HubState, PetState, PokerView, Session } from "./types";
 import { chime, notify } from "./notify";
 import Login from "./components/Login";
-import Sidebar from "./components/Sidebar";
+import Sidebar, { groupSessions } from "./components/Sidebar";
+import { getTheme, setTheme as applyThemeChoice, type Theme } from "./theme";
 import NewSession from "./components/NewSession";
 import Terminal from "./components/Terminal";
 import Poker from "./components/Poker";
@@ -36,7 +37,10 @@ export default function App() {
   const [tab, setTab] = useState<Tab>(() => load("tab", "chat"));
   const [active, setActive] = useState<string | null>(() => load("active", null));
   const [opened, setOpened] = useState<string[]>(() => (load<string | null>("active", null) ? [load("active", "")] : []));
-  const [newOpen, setNewOpen] = useState(false);
+  const [newOpen, setNewOpen] = useState<false | { dir?: string }>(false);
+  const [theme, setThemeState] = useState<Theme>(getTheme);
+  const [dock, setDock] = useState<boolean>(() => load("dock", true)); // terminal beside other tabs on wide screens
+  const [wide, setWide] = useState(() => matchMedia("(min-width: 1200px)").matches);
   const [drawer, setDrawer] = useState(false); // phone: session list slides in
   const [toasts, setToasts] = useState<Toast[]>([]);
   const viewRef = useRef({ tab, active });
@@ -50,6 +54,13 @@ export default function App() {
   }, []);
 
   useEffect(() => save("tab", tab), [tab]);
+  useEffect(() => save("dock", dock), [dock]);
+  useEffect(() => {
+    const mq = matchMedia("(min-width: 1200px)");
+    const on = () => setWide(mq.matches);
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, []);
   useEffect(() => save("active", active), [active]);
 
   // auth check
@@ -130,9 +141,13 @@ export default function App() {
   useEffect(() => {
     if (!st) return;
     const names = new Set(st.sessions.map((s) => s.name));
-    setOpened((o) => o.filter((n) => names.has(n)));
+    // keep the active one open (a rename can land after the list update)
+    setOpened((o) => {
+      const kept = o.filter((n) => names.has(n));
+      return active && names.has(active) && !kept.includes(active) ? [...kept, active] : kept;
+    });
     if (active && !names.has(active)) setActive(null);
-  }, [st?.sessions]);
+  }, [st?.sessions, active]);
 
   const open = (name: string) => {
     setOpened((o) => (o.includes(name) ? o : [...o.slice(-7), name]));
@@ -141,12 +156,27 @@ export default function App() {
     setDrawer(false);
   };
 
+  // ⌘1–9 / Ctrl+1–9: jump to the n-th Claude session in sidebar order
+  useEffect(() => {
+    if (!st) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey || !/^[1-9]$/.test(e.key)) return;
+      const s = groupSessions(st.sessions).flatMap((g) => g.list)[Number(e.key) - 1];
+      if (!s) return;
+      e.preventDefault();
+      open(s.name);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
   if (auth === "checking") return <div className="splash">连接中…</div>;
   if (auth === "need") return <Login onDone={() => setAuth("checking")} />;
   if (!st) return <div className="splash">{online ? "加载中…" : "连不上服务器，重试中…"}</div>;
 
   const anyWorking = st.sessions.some((s) => s.status === "working");
   const petSignals = { working: anyWorking, waiting: st.sessions.some((s) => s.status === "waiting"), error: st.sessions.some((s) => s.status === "error") };
+  const docked = wide && dock && tab !== "chat" && !!active && opened.includes(active);
   const counts = {
     working: st.sessions.filter((s) => s.status === "working").length,
     waiting: st.sessions.filter((s) => s.status === "waiting").length,
@@ -167,9 +197,9 @@ export default function App() {
           onToast={toast}
           active={tab === "chat" ? active : null}
           onOpen={open}
-          onNew={() => {
+          onNew={(dir) => {
             setDrawer(false);
-            setNewOpen(true);
+            setNewOpen({ dir });
           }}
           onKill={async (n) => {
             try {
@@ -181,7 +211,7 @@ export default function App() {
           onRename={async (n, to) => {
             try {
               const r = await api<{ name: string }>(`/api/sessions/${encodeURIComponent(n)}/rename`, { name: to });
-              setOpened((o) => o.map((x) => (x === n ? r.name : x)));
+              setOpened((o) => [...o.filter((x) => x !== n && x !== r.name), r.name]);
               if (active === n) setActive(r.name);
             } catch (e) {
               toast((e as Error).message, true);
@@ -226,21 +256,44 @@ export default function App() {
             <span className="tl">用量</span>
           </button>
           <span className="spacer" />
+          {wide && tab !== "chat" && (
+            <button className={`ghost dock-btn ${dock ? "on" : ""}`} title={dock ? "收起右侧终端" : "在右侧显示终端，边玩边看"} onClick={() => setDock(!dock)}>
+              ▥
+            </button>
+          )}
+          <button
+            className="ghost theme-btn"
+            title={theme === "light" ? "换成深色" : "换成浅色（纸张）"}
+            onClick={() => {
+              const t = theme === "light" ? "dark" : "light";
+              applyThemeChoice(t);
+              setThemeState(t);
+            }}
+          >
+            {theme === "light" ? "🌙" : "☀️"}
+          </button>
           <span className="chips" title="筹码：德州和宠物商店通用">
             🪙 {st.poker.stats.chips.toLocaleString()}
           </span>
         </nav>
 
-        <div className="content">
-          <div className="terms" style={{ display: tab === "chat" ? "flex" : "none" }}>
+        <div className={`content ${docked ? "with-dock" : ""}`}>
+          <div className={`terms ${docked ? "docked" : ""}`} style={{ display: tab === "chat" || docked ? "flex" : "none" }}>
             {opened.map((n) => (
-              <Terminal key={n} session={n} info={st.sessions.find((x) => x.name === n)} visible={tab === "chat" && active === n} onToast={toast} />
+              <Terminal
+                key={n}
+                session={n}
+                info={st.sessions.find((x) => x.name === n)}
+                visible={(tab === "chat" || docked) && active === n}
+                docked={docked}
+                onToast={toast}
+              />
             ))}
             {(!active || !opened.includes(active)) && (
               <div className="placeholder">
                 <p className="desktop-only">从左边选一个会话，或者</p>
                 <p className="phone-only">点下方「☰ 会话」选一个，或者</p>
-                <button className="primary" onClick={() => setNewOpen(true)}>
+                <button className="primary" onClick={() => setNewOpen({})}>
                   ＋ 新对话
                 </button>
                 <p className="muted small">图片：拖进终端、⌘V 粘贴截图，或点终端右上角 📎</p>
@@ -255,10 +308,10 @@ export default function App() {
 
       {newOpen && (
         <NewSession
-          dirs={st.dirs}
+          dirs={newOpen.dir ? [newOpen.dir, ...st.dirs.filter((d) => d !== newOpen.dir)] : st.dirs}
           onClose={() => setNewOpen(false)}
-          onCreate={async (name, dir) => {
-            const r = await api<{ name: string }>("/api/sessions", { name, dir });
+          onCreate={async (name, dir, cont) => {
+            const r = await api<{ name: string }>("/api/sessions", { name, dir, continue: cont });
             setNewOpen(false);
             open(r.name);
           }}
