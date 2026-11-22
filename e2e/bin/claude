@@ -16,7 +16,10 @@ echo "fake claude ready"
 printf '> '
 while IFS= read -r line; do
   echo "got: $line"
-  if [[ $line == hwork* ]]; then        # a turn reported through hooks
+  if [[ $line == copy* ]]; then         # what Claude Code does on copy inside tmux
+    printf 'hub copy 复制测试' | tmux load-buffer -w -
+    echo "Copied to clipboard"
+  elif [[ $line == hwork* ]]; then      # a turn reported through hooks
     hook UserPromptSubmit
     echo "✻ Working… (esc to interrupt)"
     hook PreToolUse Bash

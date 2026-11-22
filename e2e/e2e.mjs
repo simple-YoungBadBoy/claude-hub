@@ -6,7 +6,7 @@
 //
 // Screenshots land in e2e/out/ — look at them when the UI changed.
 import { spawn, execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, mkdirSync, writeFileSync, existsSync } from "node:fs";
+import { mkdtempSync, readFileSync, mkdirSync, writeFileSync, existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -93,7 +93,7 @@ try {
 
   // E2E_CHROME: use an installed Chrome/Chromium instead of Playwright's download (CI)
   browser = await chromium.launch({ headless: !process.env.E2E_HEADED, executablePath: process.env.E2E_CHROME || undefined });
-  page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  page = await browser.newPage({ viewport: { width: 1280, height: 800 }, permissions: ["clipboard-read", "clipboard-write"] });
   const pageErrors = [];
   page.on("pageerror", (e) => pageErrors.push(String(e)));
 
@@ -122,6 +122,22 @@ try {
   await page.keyboard.type("hello hub");
   await page.keyboard.press("Enter");
   await until(() => screen(name).includes("got: hello hub"), "input echoed");
+
+  log("copy in Claude (tmux load-buffer -w → OSC 52) reaches the local clipboard");
+  await page.keyboard.type("copy");
+  await page.keyboard.press("Enter");
+  await until(() => screen(name).includes("Copied to clipboard"), "fake claude copied");
+  await page.waitForSelector('.toast:has-text("已复制"), .copy-later', { timeout: 10000 });
+  if (await page.locator(".copy-later").count()) await page.click(".copy-later"); // browser refused the async write
+  await until(async () => (await page.evaluate(() => navigator.clipboard.readText())) === "hub copy 复制测试", "clipboard has the copied text");
+  await page.click(".term-box");
+
+  log("a tmux session started on the server itself shows up under 其他 tmux 会话");
+  tmux("new-session", "-d", "-s", "server-side", "-c", data, "sleep 300");
+  await page.waitForSelector('.session-group:has-text("其他 tmux 会话（1）")');
+  await page.waitForSelector('.session:has-text("server-side") .dot.other');
+  tmux("kill-session", "-t", "=server-side");
+  await page.waitForSelector(".session-group", { state: "detached" });
 
   log("image upload is pasted into the session");
   const png = Buffer.from(
@@ -274,4 +290,6 @@ try {
   } catch {
     /* already gone */
   }
+  // tmux leaves the socket file behind
+  rmSync(join(process.env.TMUX_TMPDIR || "/tmp", `tmux-${process.getuid()}`, socket), { force: true });
 }

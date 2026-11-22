@@ -21,6 +21,39 @@ const theme = {
   brightBlack: "#6b6560",
 };
 
+/** Decode an OSC 52 payload ("c;<base64>") to text; null for queries/garbage. */
+export function osc52Text(data: string): string | null {
+  const b64 = data.slice(data.indexOf(";") + 1);
+  if (!b64 || b64 === "?") return null; // clipboard read requests are refused
+  try {
+    const bin = atob(b64);
+    return new TextDecoder().decode(Uint8Array.from(bin, (c) => c.charCodeAt(0)));
+  } catch {
+    return null;
+  }
+}
+
+/** Copy inside a user gesture; works on http pages too (no Clipboard API). */
+export function copyNow(text: string): boolean {
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.style.cssText = "position:fixed;top:-1000px;opacity:0";
+  document.body.appendChild(ta);
+  ta.select();
+  let ok = false;
+  try {
+    ok = document.execCommand("copy");
+  } catch {
+    ok = false;
+  }
+  ta.remove();
+  if (!ok && navigator.clipboard) {
+    void navigator.clipboard.writeText(text);
+    ok = true;
+  }
+  return ok;
+}
+
 function imageFiles(list: FileList | DataTransferItemList | null | undefined): File[] {
   const out: File[] = [];
   if (!list) return out;
@@ -40,7 +73,10 @@ export default function Terminal({ session, visible, onToast }: Props) {
   const [conn, setConn] = useState<"connecting" | "open" | "closed">("connecting");
   const [dragging, setDragging] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [copyLater, setCopyLater] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  const toastRef = useRef(onToast);
+  toastRef.current = onToast;
 
   // create terminal + websocket once per session
   useEffect(() => {
@@ -82,6 +118,73 @@ export default function Terminal({ session, visible, onToast }: Props) {
       return true;
     });
     term.onData((d) => send({ t: "i", d }));
+
+    // Claude Code (and tmux) copy with OSC 52, which xterm.js ignores. Writing
+    // the clipboard needs a user gesture in WebKit, and the sequence arrives
+    // later over the network, so on mouseup we start a clipboard write whose
+    // content is a promise that the next OSC 52 fulfils.
+    let pending: { resolve: (t: string) => void; timer: number } | null = null;
+    let hideLater: number | undefined;
+    const delivered = (text: string) => {
+      toastRef.current(`已复制 ${text.length} 个字符`);
+      setCopyLater(null);
+    };
+    const offerClick = (text: string) => {
+      setCopyLater(text);
+      clearTimeout(hideLater);
+      hideLater = window.setTimeout(() => setCopyLater(null), 20000);
+    };
+    term.parser.registerOscHandler(52, (data) => {
+      const text = osc52Text(data);
+      if (text === null) return true;
+      if (pending) {
+        clearTimeout(pending.timer);
+        pending.resolve(text);
+        pending = null;
+        delivered(text);
+        return true;
+      }
+      if (navigator.clipboard?.writeText) {
+        // some engines neither resolve nor reject without a gesture/focus
+        let settled = false;
+        const giveUp = window.setTimeout(() => !settled && offerClick(text), 1500);
+        navigator.clipboard.writeText(text).then(
+          () => {
+            settled = true;
+            clearTimeout(giveUp);
+            delivered(text);
+          },
+          () => {
+            settled = true;
+            clearTimeout(giveUp);
+            offerClick(text);
+          },
+        );
+      } else offerClick(text);
+      return true;
+    });
+    const el = box.current!;
+    let down: { x: number; y: number } | null = null;
+    const onDown = (e: MouseEvent) => (down = { x: e.clientX, y: e.clientY });
+    const onUp = (e: MouseEvent) => {
+      const dragged = down && Math.abs(e.clientX - down.x) + Math.abs(e.clientY - down.y) > 4;
+      down = null;
+      if (!(dragged || e.detail >= 2) || pending || !navigator.clipboard?.write || typeof ClipboardItem === "undefined") return;
+      let resolve!: (t: string) => void;
+      let reject!: (e: Error) => void;
+      const text = new Promise<string>((res, rej) => ((resolve = res), (reject = rej)));
+      const timer = window.setTimeout(() => {
+        pending = null;
+        reject(new Error("no copy"));
+      }, 2000);
+      pending = { resolve, timer };
+      const blob = text.then((t) => new Blob([t], { type: "text/plain" }));
+      navigator.clipboard.write([new ClipboardItem({ "text/plain": blob })]).catch(() => {
+        /* nothing was copied (plain click/selection) or the write was refused */
+      });
+    };
+    el.addEventListener("mousedown", onDown, true);
+    el.addEventListener("mouseup", onUp, true);
     term.onResize(({ cols, rows }) => send({ t: "r", c: cols, r: rows }));
 
     let stopped = false;
@@ -114,6 +217,9 @@ export default function Terminal({ session, visible, onToast }: Props) {
     return () => {
       stopped = true;
       clearTimeout(retry);
+      clearTimeout(hideLater);
+      el.removeEventListener("mousedown", onDown, true);
+      el.removeEventListener("mouseup", onUp, true);
       wsRef.current?.close();
       term.dispose();
     };
@@ -207,6 +313,18 @@ export default function Terminal({ session, visible, onToast }: Props) {
       </div>
       <div className="term-box" ref={box} />
       {dragging && <div className="drop-hint">松手发送给 Claude</div>}
+      {copyLater !== null && (
+        <button
+          className="copy-later"
+          onClick={() => {
+            const ok = copyNow(copyLater);
+            setCopyLater(null);
+            onToast(ok ? `已复制 ${copyLater.length} 个字符` : "复制失败，请用 Option+拖动 选中后 ⌘C", !ok);
+          }}
+        >
+          📋 Claude 复制了 {copyLater.length} 个字符 · 点这里复制到本机
+        </button>
+      )}
       {conn === "closed" && <div className="term-overlay">连接断开，正在重连…</div>}
     </div>
   );

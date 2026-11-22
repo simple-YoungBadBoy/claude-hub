@@ -18,10 +18,12 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"claudehub/internal/hooks"
@@ -133,7 +135,18 @@ func main() {
 		}()
 	}
 	log.Printf("token file: %s", filepath.Join(s.dataDir, "token"))
-	log.Fatal(<-errc)
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT)
+	select {
+	case err := <-errc:
+		term.CloseAll()
+		log.Fatal(err)
+	case got := <-sig:
+		// systemd only stops the hub (KillMode=process): close our `tmux
+		// attach` clients ourselves so none are left behind.
+		log.Printf("%v: closing %d terminals", got, term.Open())
+		term.CloseAll()
+	}
 }
 
 func logErr(err error) {
@@ -308,6 +321,12 @@ func (s *server) routes(mux *http.ServeMux) {
 			http.Error(w, "no such session", http.StatusNotFound)
 			return
 		}
+		release, err := term.Acquire()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusTooManyRequests)
+			return
+		}
+		defer release()
 		ws, err := s.up.Upgrade(w, r, nil)
 		if err != nil {
 			return
@@ -387,6 +406,7 @@ func (s *server) events(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer ws.Close()
+	ws.SetReadLimit(4 << 10) // clients send nothing but pongs
 	ch, cancel := s.hub.Subscribe()
 	defer cancel()
 	init, _ := json.Marshal(map[string]any{"type": "state", "data": s.state()})

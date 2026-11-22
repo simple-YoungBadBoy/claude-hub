@@ -13,6 +13,8 @@ RestartSec=3
 KillMode=process
 Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 Environment=LANG=C.UTF-8
+# soft heap limit: the Go GC works harder before the hub grows past this
+Environment=GOMEMLIMIT=200MiB
 
 [Install]
 WantedBy=default.target

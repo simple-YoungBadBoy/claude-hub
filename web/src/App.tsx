@@ -36,7 +36,6 @@ export default function App() {
   const [tab, setTab] = useState<Tab>(() => load("tab", "chat"));
   const [active, setActive] = useState<string | null>(() => load("active", null));
   const [opened, setOpened] = useState<string[]>(() => (load<string | null>("active", null) ? [load("active", "")] : []));
-  const [showAll, setShowAll] = useState(() => load("showAll", false));
   const [newOpen, setNewOpen] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const viewRef = useRef({ tab, active });
@@ -51,7 +50,6 @@ export default function App() {
 
   useEffect(() => save("tab", tab), [tab]);
   useEffect(() => save("active", active), [active]);
-  useEffect(() => save("showAll", showAll), [showAll]);
 
   // auth check
   useEffect(() => {
@@ -147,8 +145,6 @@ export default function App() {
           sessions={st.sessions}
           hooks={st.hooks}
           active={tab === "chat" ? active : null}
-          showAll={showAll}
-          setShowAll={setShowAll}
           onOpen={open}
           onNew={() => setNewOpen(true)}
           onKill={async (n) => {

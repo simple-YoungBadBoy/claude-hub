@@ -6,7 +6,18 @@ export async function api<T = unknown>(path: string, body?: unknown, method?: st
     init.headers = { "X-Hub": "1", "Content-Type": "application/json" };
     init.body = JSON.stringify(body ?? {});
   }
-  const res = await fetch(path, init);
+  // never hang forever (e.g. the server restarting mid-request)
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), init.method === "GET" ? 60000 : 15000); // GET /api/usage may scan a while
+  init.signal = ctl.signal;
+  let res: Response;
+  try {
+    res = await fetch(path, init);
+  } catch (e) {
+    throw new Error(ctl.signal.aborted ? "请求超时，服务器可能正在重启，稍后再试" : `连不上服务器（${(e as Error).message}），稍后再试`);
+  } finally {
+    clearTimeout(timer);
+  }
   if (res.status === 401) throw new Unauthorized("unauthorized");
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error((data as { error?: string }).error || res.statusText);

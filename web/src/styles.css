@@ -91,7 +91,7 @@ code { background: var(--panel2); padding: 1px 5px; border-radius: 4px; }
 .hooks-hint { font-size: 11px; color: var(--muted); padding: 6px 8px; margin: 4px; border: 1px dashed var(--line); border-radius: 7px; cursor: help; }
 @keyframes pulse { 50% { opacity: .35; transform: scale(.8); } }
 .empty { color: var(--muted); padding: 12px; text-align: center; }
-.show-all { display: flex; gap: 6px; align-items: center; color: var(--muted); font-size: 11.5px; padding: 8px 6px; }
+.session-group { color: var(--muted); font-size: 11.5px; padding: 12px 8px 4px; border-top: 1px solid var(--line); margin-top: 6px; }
 
 /* mini pet */
 .mini-pet { display: flex; gap: 10px; align-items: center; padding: 10px 12px; border-top: 1px solid var(--line); cursor: pointer; }
@@ -252,3 +252,5 @@ code { background: var(--panel2); padding: 1px 5px; border-radius: 4px; }
 .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; font-weight: 400; }
 .seg button { border: 0; border-radius: 0; padding: 2px 10px; font-size: 11.5px; background: none; color: var(--muted); }
 .seg button.on { background: var(--panel2); color: var(--text); }
+.copy-later { position: absolute; right: 16px; bottom: 16px; z-index: 5; background: var(--accent); color: #1a120d; border: 0; font-weight: 600; box-shadow: 0 4px 14px #0008; }
+.copy-later:hover:not(:disabled) { background: var(--accent2); }

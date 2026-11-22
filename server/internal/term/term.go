@@ -6,6 +6,7 @@ package term
 
 import (
 	"encoding/json"
+	"errors"
 	"log"
 	"os"
 	"sync"
@@ -23,9 +24,66 @@ type msg struct {
 	R uint16 `json:"r"`
 }
 
+// MaxConns caps concurrent terminals (each is a `tmux attach` process).
+const MaxConns = 24
+
+// ErrTooMany is returned by Acquire when MaxConns terminals are open.
+var ErrTooMany = errors.New("打开的终端太多了，先关掉几个标签页")
+
+var (
+	liveMu sync.Mutex
+	open   int
+)
+
+// Acquire reserves a terminal slot; call release exactly once when done.
+func Acquire() (release func(), err error) {
+	liveMu.Lock()
+	defer liveMu.Unlock()
+	if open >= MaxConns {
+		return nil, ErrTooMany
+	}
+	open++
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			liveMu.Lock()
+			open--
+			liveMu.Unlock()
+		})
+	}, nil
+}
+
+// Open is the number of reserved terminal slots.
+func Open() int {
+	liveMu.Lock()
+	defer liveMu.Unlock()
+	return open
+}
+
+var stops = struct {
+	sync.Mutex
+	m map[int]func()
+	n int
+}{m: map[int]func(){}}
+
+// CloseAll stops every `tmux attach` this process started (on shutdown, so
+// no orphaned clients stay behind after a restart).
+func CloseAll() {
+	stops.Lock()
+	fns := make([]func(), 0, len(stops.m))
+	for _, f := range stops.m {
+		fns = append(fns, f)
+	}
+	stops.Unlock()
+	for _, f := range fns {
+		f()
+	}
+}
+
 // Serve attaches to session over ws until either side closes.
 func Serve(ws *websocket.Conn, session string, cols, rows uint16) {
 	defer ws.Close()
+	ws.SetReadLimit(1 << 20) // input and resize messages are tiny
 	if cols == 0 || rows == 0 {
 		cols, rows = 120, 40
 	}
@@ -46,9 +104,17 @@ func Serve(ws *websocket.Conn, session string, cols, rows uint16) {
 			}
 		})
 	}
+	stops.Lock()
+	stops.n++
+	id := stops.n
+	stops.m[id] = stop
+	stops.Unlock()
 	defer func() {
 		stop()
 		cmd.Wait()
+		stops.Lock()
+		delete(stops.m, id)
+		stops.Unlock()
 	}()
 
 	var wmu sync.Mutex

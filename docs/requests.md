@@ -4,6 +4,31 @@
 
 ---
 
+## 2026-11-22 · 复制不到 Mac / 新建对话没反应 / 服务器上直接开的 tmux 看不到 / 内存 / 流程 / iPhone
+
+**需求原话**：1.无法复制，显示了复制但没复制到 Mac；2.新建对话不会在服务器新建 tmux，左侧也不多一个；3.服务器自己新建的 tmux 也要扫描到；4.不能太占内存，要防内存溢出；5.每个任务都走审核/规划/开发/测试的完整 SOP，不用提醒；6.做完自动提交 GitHub；7.做一个 iPhone 上也能用的、原理一样的软件。
+
+**排查与结论**：
+
+| # | 原因 | 结论 |
+|---|---|---|
+| 1 | Claude Code 选中文字后用 OSC 52 转义序列写剪贴板（提示「已复制」）。tmux 已转发（`set-clipboard on`），但 xterm.js 默认忽略 OSC 52；而且 WebKit 只允许在用户手势里写剪贴板，经过网络回来的 OSC 52 已不在手势里 | **修（bug）**：终端接管 OSC 52；松开鼠标时预先发起一次剪贴板写入（Safari 支持 ClipboardItem 里放 Promise），等 OSC 52 到达再填入内容；写不进去时弹出「点击复制」按钮（点击就是手势，http 下用 execCommand 兜底） |
+| 2 | 服务器日志里今天没有任何来自 Mac 的 POST；Mac 上通过 App 转发口实测 POST 正常，所以请求在网页这一侧就没发出或失败了。最可能的情况是点击时恰好赶上我在部署、服务正在重启。另一个确定存在的问题：新会话在 `claude` 启动前那 1–2 秒不算 Claude 会话，会被侧栏隐藏 | **修（bug）**：hub 新建的会话打上 tmux 标记 `@claudehub`，一建出来就显示；请求加超时并给出明确错误，失败时对话框里能看到原因 |
+| 3 | 侧栏默认只显示运行 `claude` 的会话，服务器上直接开的 tmux（bash）藏在「显示其他 tmux 会话」勾选框后面 | **修**：去掉勾选框，非 Claude 的 tmux 会话始终显示在「其他 tmux 会话」分组里 |
+| 4 | hub 本身 RSS 约 17MB，用量扫描峰值 44MB；隐患在于 hub 拉起的 tmux server 会落进 hub 的 cgroup，重启后 `tmux attach` 客户端会残留 | **做**：服务设 `GOMEMLIMIT`；hub 退出时关掉自己的 attach 客户端；终端连接数设上限；hub 需要拉起 tmux server 时用 `systemd-run --user --scope` 放到独立 scope（之后才能安全地给 hub 设硬内存上限）；live-check 检查 tmux server 不在 hub 的 cgroup 里。不给服务设 MemoryMax：老用户的 tmux server 可能还在 hub cgroup 里，硬上限会误杀他们的 claude |
+| 5、6 | 流程 | **做**：CLAUDE.md 写明每个任务都默认走完整流程，做完自动提交并推送、查 CI，不用用户提醒 |
+| 7 | 见下 | **用户选择：PWA + HTTPS（tailscale serve）**，这批 bug 推送后开始做 |
+
+**7. iPhone 评审**：原理不变（服务器干活，手机只是界面，走 Tailscale）。
+
+- 推荐做法：**PWA**。iPhone 装 Tailscale，在 Safari 打开 hub，「添加到主屏幕」就成了一个 App 图标、全屏使用。不用上架 App Store，不用 Apple 开发者账号（$99/年），更新随服务器部署自动生效，开源用户零成本。
+- 要做的事：手机布局（侧栏变抽屉、底部标签栏）；终端适配触屏（快捷键条：Esc、Tab、↑↓、Ctrl-C、回车、Shift+Enter，方便选项确认）；从相册选图上传（现有上传接口直接复用）；德州、宠物、用量页适配窄屏。
+- HTTPS（可选，推荐）：用 `tailscale serve` 拿到 `https://<机器名>.ts.net` 的正规证书，流量仍只在 tailnet 内（不是 funnel，不暴露公网）。有了 HTTPS 才能用剪贴板 API、完整的 PWA 能力和 iOS 网页推送（iOS 16.4+，需加到主屏幕）。不开 HTTPS 也能用，只是少了这几项。
+- 不推荐：原生 iOS App（Swift 或 Tauri mobile）。要开发者账号和签名，每次更新都要重装，成本高，收益只是推送更稳一些。
+- 风险：iOS 虚拟键盘配合 xterm.js 体验一般（中文输入法、方向键），靠快捷键条和一个单独的「输入框发送」模式缓解；手机上如果开了代理类 App，同样要绕过 `100.64.0.0/10,*.ts.net`。
+
+---
+
 ## 2026-11-22 · CI 从第一次推送起一直是红的（bug）
 
 **原因**：`web/`、`e2e/` 的 `package-lock.json` 里下载地址全是本机配置的 `http://mirrors.tencentyun.com`（腾讯云内网镜像）。GitHub 和腾讯云以外的开源用户都访问不到，`npm ci --silent` 静默失败。

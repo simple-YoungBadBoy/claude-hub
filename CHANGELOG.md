@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fix: copying in Claude Code ("Copied to clipboard") now reaches the Mac/browser clipboard (OSC 52); if the browser refuses, a "点这里复制到本机" button appears.
+- Fix: a new conversation shows in the sidebar immediately, even before `claude` has started; requests time out with a clear message instead of hanging.
+- tmux sessions started directly on the server are always listed (under "其他 tmux 会话"), no checkbox needed.
+- Lower memory risk: the hub caps open terminals, closes its `tmux attach` clients on restart, sets a Go memory limit, and starts a new tmux server in its own systemd scope instead of the hub's.
 - New 📊 Usage tab: today's Claude Code tokens on the server (input / output / cache write / cache read, subagent share) by model and project, and the last 7 days.
 - Fix: building from a fresh clone failed outside the maintainer's cloud (npm lockfiles pointed at a private mirror).
 - Claude Code hooks (optional, `claude-hub hooks install`): exact status per session — thinking, running a tool, waiting for permission, error — instead of reading the screen; each conversation's context usage with a warning at 85%; the pet gets worried when a session waits for you. Without hooks everything falls back to screen reading.

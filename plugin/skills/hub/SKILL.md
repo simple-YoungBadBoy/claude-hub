@@ -59,7 +59,8 @@ Check the Mac can reach the server: `curl -s -o /dev/null -w '%{http_code}\n' ht
 | Browser page blank or "can't connect", but `curl` works | A **system proxy** (Clash, Surge, Shadowrocket…) sends 100.x / `*.ts.net` traffic out to the internet. Add `100.64.0.0/10,*.ts.net` to the proxy's bypass list (Clash Verge: Settings → System Proxy → bypass; config key `system_proxy_bypass` in `verge.yaml`). Ask first, back the config up, then restart the proxy app. The Mac app itself is not affected: it forwards through `127.0.0.1:17788`. |
 | App shows "连不上服务器" page | Tailscale off on the Mac, server down (`systemctl --user status claude-hub`, `journalctl --user -u claude-hub -n 50`), or wrong URL (⌘, to change). |
 | Login says token wrong | Token is `~/claude-hub/data/token` on the server (whitespace is trimmed). |
-| Sessions missing from the list | Only panes running `claude` are shown by default; tick "显示其他 tmux 会话". The service must run as the same user as your tmux. |
+| Sessions missing from the list | Sessions not running `claude` are listed under "其他 tmux 会话". Only the default tmux server is scanned (not `tmux -L <name>` sockets), and the service must run as the same user as your tmux. |
+| "Copied" in Claude but nothing on the Mac | Claude copies with `tmux load-buffer -w`, which goes to the most recently active client of that session. If an SSH terminal is also attached, it may get it instead; otherwise click the "点这里复制到本机" button that appears in the terminal. Option+drag selects terminal text directly (then ⌘C). |
 | Status wrong / no context bar | Without hooks, status is read from the screen (`esc to interrupt`) and there is no context usage. Check `~/claude-hub/bin/claude-hub hooks status` (should be 11/11) and restart `claude` in that session. |
 | Image not attached | The path is pasted as a bracketed paste; Claude Code shows `[Image #N]`. Uploads are stored in `~/claude-hub/data/uploads/<session>/`. |
 

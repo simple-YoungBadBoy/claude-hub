@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 )
@@ -28,6 +29,7 @@ type Session struct {
 	Activity string   `json:"activity"` // e.g. "运行 Bash", "等你确认：…" (hooks only)
 	Context  *Context `json:"context,omitempty"`
 	Hooked   bool     `json:"hooked"` // status comes from Claude Code hooks
+	Hub      bool     `json:"hub"`    // created from the hub (tmux option @claudehub)
 }
 
 // Socket, when set, makes every call use a private tmux server
@@ -74,7 +76,7 @@ func Env() []string {
 
 // List returns all sessions, newest first.
 func List() ([]Session, error) {
-	out, err := run("list-sessions", "-F", "#{session_name}\t#{session_created}\t#{session_attached}")
+	out, err := run("list-sessions", "-F", "#{session_name}\t#{session_created}\t#{session_attached}\t#{@claudehub}")
 	if err != nil {
 		if strings.Contains(err.Error(), "no server running") || strings.Contains(err.Error(), "No such file") {
 			return []Session{}, nil
@@ -90,7 +92,7 @@ func List() ([]Session, error) {
 		}
 		c, _ := strconv.ParseInt(f[1], 10, 64)
 		a, _ := strconv.Atoi(f[2])
-		list = append(list, Session{Name: f[0], Created: c, Attached: a})
+		list = append(list, Session{Name: f[0], Created: c, Attached: a, Hub: len(f) > 3 && f[3] == "1"})
 	}
 	for i := range list {
 		byName[list[i].Name] = &list[i]
@@ -104,7 +106,9 @@ func List() ([]Session, error) {
 			}
 			if s := byName[f[0]]; s != nil {
 				s.Command, s.Path, s.PaneID = f[3], f[4], f[5]
-				s.Claude = isClaude(f[3])
+				// hub sessions run claude from the start; before it has
+				// exec'd the pane may still report the shell
+				s.Claude = isClaude(f[3]) || s.Hub
 			}
 		}
 	}
@@ -158,7 +162,10 @@ func Create(name, dir, command string) (string, error) {
 	if st, err := os.Stat(dir); err != nil || !st.IsDir() {
 		return "", fmt.Errorf("目录不存在: %s", dir)
 	}
-	if _, err := run("new-session", "-d", "-s", final, "-c", dir, "-x", "160", "-y", "45", command); err != nil {
+	// the chained set-option marks the new session (it is the current one),
+	// so the list shows it as a Claude session before claude has started
+	args := []string{"new-session", "-d", "-s", final, "-c", dir, "-x", "160", "-y", "45", command, ";", "set-option", "@claudehub", "1"}
+	if err := newSession(args); err != nil {
 		return "", err
 	}
 	return final, nil
@@ -200,4 +207,40 @@ func Paste(name, text string) error {
 	}
 	_, err := run("paste-buffer", "-p", "-d", "-b", buf, "-t", "="+name+":")
 	return err
+}
+
+// newSession runs `tmux new-session`. If no tmux server is running yet, that
+// command forks the server, which would then live in the hub's own cgroup
+// (and die or be memory-limited with the hub's service). Start it in its own
+// systemd scope when possible.
+func newSession(args []string) error {
+	if Socket == "" && !serverRunning() && scopeAvailable() {
+		cmd := exec.Command("systemd-run", append([]string{"--user", "--scope", "--quiet", "--collect", "--unit", fmt.Sprintf("tmux-claudehub-%d", time.Now().UnixNano()), "tmux"}, args...)...)
+		cmd.Env = Env()
+		if out, err := cmd.CombinedOutput(); err == nil {
+			return nil
+		} else if serverRunning() {
+			// tmux itself ran and failed: report its error
+			return errors.New(strings.TrimSpace(string(out)))
+		}
+	}
+	_, err := run(args...)
+	return err
+}
+
+func serverRunning() bool {
+	_, err := run("list-sessions")
+	return err == nil
+}
+
+var (
+	scopeOnce sync.Once
+	scopeOK   bool
+)
+
+func scopeAvailable() bool {
+	scopeOnce.Do(func() {
+		scopeOK = exec.Command("systemd-run", "--user", "--scope", "--quiet", "--collect", "true").Run() == nil
+	})
+	return scopeOK
 }
