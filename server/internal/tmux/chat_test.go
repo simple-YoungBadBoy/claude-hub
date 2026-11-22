@@ -52,3 +52,13 @@ func TestReadChat(t *testing.T) {
 		t.Fatal("missing file")
 	}
 }
+
+func TestClipStripsMarkupNoise(t *testing.T) {
+	got := clip("<div align=\"center\">\n## 改好了\n- 加了 **一行**\n\n| 文件 | 行 |\n|---|---|\n| a.md | 2 |", 80)
+	if got != "改好了 - 加了 一行 文件 行 a.md 2" {
+		t.Fatalf("%q", got)
+	}
+	if got := clip("a < b and c > d", 80); got != "a < b and c > d" {
+		t.Fatalf("plain comparisons kept: %q", got)
+	}
+}

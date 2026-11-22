@@ -430,3 +430,17 @@ label.check input { width: auto; }
   .chat { font-size: 14.5px; }
   .git-row, .dir-row { padding: 10px 12px; font-size: 13.5px; }
 }
+
+/* live strip: what each Claude session is doing, above poker / pet / usage when the terminal isn't docked */
+.live-strip { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-bottom: 1px solid var(--line); background: var(--panel); overflow: hidden; }
+.live-item { display: flex; align-items: center; gap: 6px; min-width: 0; flex: 0 1 auto; max-width: 420px; padding: 4px 10px; font-size: 12px; border-radius: 99px; }
+.live-item.waiting { border-color: var(--accent); background: var(--active-bg); }
+.live-item .dot { flex-shrink: 0; }
+.live-name { font-weight: 600; white-space: nowrap; flex-shrink: 0; max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
+.live-what { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.live-item.waiting .live-what { color: var(--accent2); }
+.live-more { font-size: 12px; flex-shrink: 0; }
+@media (max-width: 700px) {
+  .live-strip { flex-direction: column; align-items: stretch; gap: 4px; padding: 6px 8px; }
+  .live-item { max-width: none; font-size: 12.5px; }
+}

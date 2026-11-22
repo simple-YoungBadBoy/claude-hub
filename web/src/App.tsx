@@ -10,6 +10,7 @@ import Terminal from "./components/Terminal";
 import Poker from "./components/Poker";
 import Pet, { MiniPet } from "./components/Pet";
 import Usage from "./components/Usage";
+import LiveStrip from "./components/LiveStrip";
 
 type Tab = "chat" | "poker" | "pet" | "usage";
 type Toast = { id: number; msg: string; err?: boolean };
@@ -150,6 +151,16 @@ export default function App() {
     if (active && !names.has(active)) setActive(null);
   }, [st?.sessions]);
 
+  // The docked terminal shows the current session, or the one that needs
+  // you most, without having to open it in the 对话 tab first.
+  const dockWanted = wide && dock && tab !== "chat";
+  const dockName = !st ? null : active && st.sessions.some((s) => s.name === active) ? active : (groupSessions(st.sessions)[0]?.list[0]?.name ?? null);
+  useEffect(() => {
+    if (!dockWanted || !dockName) return;
+    if (active !== dockName) setActive(dockName);
+    setOpened((o) => (o.includes(dockName) ? o : [...o.slice(-7), dockName]));
+  }, [dockWanted, dockName]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const open = (name: string) => {
     fresh.current = { name, at: Date.now() };
     setOpened((o) => (o.includes(name) ? o : [...o.slice(-7), name]));
@@ -178,7 +189,7 @@ export default function App() {
 
   const anyWorking = st.sessions.some((s) => s.status === "working");
   const petSignals = { working: anyWorking, waiting: st.sessions.some((s) => s.status === "waiting"), error: st.sessions.some((s) => s.status === "error") };
-  const docked = wide && dock && tab !== "chat" && !!active && opened.includes(active);
+  const docked = dockWanted && !!active && opened.includes(active);
   const counts = {
     working: st.sessions.filter((s) => s.status === "working").length,
     waiting: st.sessions.filter((s) => s.status === "waiting").length,
@@ -279,6 +290,7 @@ export default function App() {
             🪙 {st.poker.stats.chips.toLocaleString()}
           </span>
         </nav>
+        {tab !== "chat" && !docked && <LiveStrip sessions={st.sessions} onOpen={open} />}
 
         <div className={`content ${docked ? "with-dock" : ""}`}>
           <div className={`terms ${docked ? "docked" : ""}`} style={{ display: tab === "chat" || docked ? "flex" : "none" }}>

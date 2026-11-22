@@ -329,6 +329,24 @@ try {
   }
   await page.screenshot({ path: join(out, "2-poker.png") });
 
+  log("dock without opening the session first (fresh page straight on 德州)");
+  await page.evaluate(() => {
+    localStorage.setItem("active", "null");
+    localStorage.setItem("tab", JSON.stringify("poker"));
+  });
+  await page.reload();
+  await page.waitForSelector(".terms.docked .term-box", { timeout: 10000 });
+  assert(await page.locator(".terms.docked .term-box").isVisible(), "the session that needs you most is docked");
+  log("narrow window: a live strip instead of the dock, a tap opens the terminal");
+  await page.setViewportSize({ width: 1000, height: 800 });
+  await page.waitForSelector(".live-strip .live-item .live-name", { timeout: 5000 });
+  assert(!(await page.locator(".terms.docked").count()), "no dock when narrow");
+  await page.screenshot({ path: join(out, "2b-poker-strip.png") });
+  await page.click(".live-strip .live-item");
+  await page.waitForSelector('nav.tabs button.on:has-text("对话")');
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.click('nav.tabs button:has-text("德州")');
+
   log("⌘1 jumps to the first session; light theme");
   await page.keyboard.press("Meta+1");
   await page.waitForSelector('nav.tabs button.on:has-text("对话")');
@@ -434,6 +452,7 @@ try {
     await m.tap(".insp-close");
     await m.tap('nav.tabs button:has-text("用量")');
     await m.waitForSelector(".usage-card.big");
+    await m.waitForSelector(".live-strip .live-item");
     await m.screenshot({ path: join(out, "5-phone-usage.png") });
     await phone.close();
   }

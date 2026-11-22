@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- While playing poker or on the pet / usage tab, the terminal now docks on wide screens even if you haven't opened the session yet (it picks the one that needs you most). On narrow windows and the phone a slim strip shows what each Claude session is doing; tap it to jump to the terminal.
 - 📖 查看 in the terminal bar opens a read-only side panel: the conversation as chat (Markdown rendered, tool calls folded), the git changes of the session's folder with a diff per file, and a file browser that renders Markdown. ⌘-click (or tap on the phone) a file path in the terminal to open it. It only reads inside the session's working folder.
 - New look options: a light "paper" theme (☀️ / 🌙 in the top bar), sessions grouped by project folder with a ＋ to start another one there, sessions needing you sorted first, and how long each has been running.
 - On wide screens the active terminal stays docked on the right while you play poker or check the pet / usage (▥ to hide it).

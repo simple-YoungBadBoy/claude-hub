@@ -165,10 +165,16 @@ func replyText(raw json.RawMessage) string {
 	return t
 }
 
-var mdNoise = strings.NewReplacer("`", "", "**", "", "__", "", "#", "")
+var (
+	mdNoise  = strings.NewReplacer("`", "", "**", "", "__", "", "#", "", "|", " ")
+	htmlTag  = regexp.MustCompile(`</?[a-zA-Z][^>\n]*>`)
+	tableSep = regexp.MustCompile(`(?m)^[\s|:-]*-{3,}[\s|:-]*$`)
+)
 
-// clip collapses whitespace and markdown noise and keeps at most n runes.
+// clip collapses whitespace, HTML tags, table rules and markdown noise and
+// keeps at most n runes.
 func clip(s string, n int) string {
+	s = tableSep.ReplaceAllString(htmlTag.ReplaceAllString(s, " "), " ")
 	s = strings.Join(strings.Fields(mdNoise.Replace(s)), " ")
 	if utf8.RuneCountInString(s) <= n {
 		return s
