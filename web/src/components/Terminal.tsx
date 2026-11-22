@@ -54,6 +54,20 @@ export function copyNow(text: string): boolean {
   return ok;
 }
 
+// phone key bar: what the soft keyboard can't type
+const KEYS: [string, string, string][] = [
+  ["Esc", "\x1b", "Esc：取消 / 打断"],
+  ["Tab", "\t", "Tab"],
+  ["⇧Tab", "\x1b[Z", "Shift+Tab：切换模式"],
+  ["↑", "\x1b[A", "上"],
+  ["↓", "\x1b[B", "下"],
+  ["←", "\x1b[D", "左"],
+  ["→", "\x1b[C", "右"],
+  ["^C", "\x03", "Ctrl+C"],
+  ["⇧⏎", "\x1b\r", "换行（不发送）"],
+  ["⏎", "\r", "回车"],
+];
+
 function imageFiles(list: FileList | DataTransferItemList | null | undefined): File[] {
   const out: File[] = [];
   if (!list) return out;
@@ -74,6 +88,8 @@ export default function Terminal({ session, visible, onToast }: Props) {
   const [dragging, setDragging] = useState(false);
   const [busy, setBusy] = useState(false);
   const [copyLater, setCopyLater] = useState<string | null>(null);
+  const [compose, setCompose] = useState(false);
+  const [draft, setDraft] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
   const toastRef = useRef(onToast);
   toastRef.current = onToast;
@@ -95,12 +111,16 @@ export default function Terminal({ session, visible, onToast }: Props) {
     term.loadAddon(fit);
     term.loadAddon(new WebLinksAddon());
     term.open(box.current!);
-    try {
-      const gl = new WebglAddon();
-      gl.onContextLoss(() => gl.dispose());
-      term.loadAddon(gl);
-    } catch {
-      /* canvas fallback */
+    // WebGL is fast on desktops; on phones (iOS Safari especially) it can
+    // mis-scale or lose its context, and the DOM renderer is plenty there
+    if (!matchMedia("(pointer: coarse)").matches) {
+      try {
+        const gl = new WebglAddon();
+        gl.onContextLoss(() => gl.dispose());
+        term.loadAddon(gl);
+      } catch {
+        /* DOM renderer fallback */
+      }
     }
     termRef.current = term;
     fitRef.current = fit;
@@ -247,6 +267,21 @@ export default function Terminal({ session, visible, onToast }: Props) {
     };
   }, [visible]);
 
+  const sendInput = (d: string) => {
+    const ws = wsRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ t: "i", d }));
+  };
+  // The composer suits phone keyboards / IME better than typing into xterm.
+  // Text and Enter go separately: Claude Code treats fast input with a CR in
+  // it as a paste (newline, not submit).
+  const sendDraft = () => {
+    const text = draft.replace(/\s+$/, "");
+    if (!text) return;
+    sendInput(text.includes("\n") ? `\x1b[200~${text}\x1b[201~` : text);
+    window.setTimeout(() => sendInput("\r"), 120);
+    setDraft("");
+  };
+
   const sendFiles = async (files: File[]) => {
     if (!files.length) return;
     setBusy(true);
@@ -312,6 +347,42 @@ export default function Terminal({ session, visible, onToast }: Props) {
         />
       </div>
       <div className="term-box" ref={box} />
+      <div className="keybar">
+        {KEYS.map(([label, seq, title]) => (
+          <button
+            key={label}
+            title={title}
+            // keep focus (and the soft keyboard) where it is
+            onPointerDown={(e) => e.preventDefault()}
+            onClick={() => sendInput(seq)}
+          >
+            {label}
+          </button>
+        ))}
+        <button className={compose ? "on" : ""} onPointerDown={(e) => e.preventDefault()} onClick={() => setCompose((c) => !c)} title="用输入框打字（中文输入更顺手）">
+          ✎
+        </button>
+      </div>
+      {compose && (
+        <form
+          className="composer"
+          onSubmit={(e) => {
+            e.preventDefault();
+            sendDraft();
+          }}
+        >
+          <textarea
+            autoFocus
+            rows={2}
+            value={draft}
+            placeholder="在这里输入，点发送（回车换行）"
+            onChange={(e) => setDraft(e.target.value)}
+          />
+          <button className="primary" disabled={!draft.trim()}>
+            发送
+          </button>
+        </form>
+      )}
       {dragging && <div className="drop-hint">松手发送给 Claude</div>}
       {copyLater !== null && (
         <button

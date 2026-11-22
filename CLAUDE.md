@@ -15,13 +15,14 @@ Mac: Claude Hub.app (Tauri 壳) ──Tailscale──> 服务器 claude-hub (Go,
 |---|---|
 | `server/` | Go 1.22，无框架。`main.go` 路由/鉴权/上传；`internal/tmux` 会话管理与状态识别（有 hooks 时以 hook 事件为准、读屏纠正；没有时读屏：`esc to interrupt` = 工作中）；`internal/hooks` 是 `claude-hub hook` 客户端与 settings.json 安装器；`internal/usage` 增量统计 `~/.claude/projects` 里的 token 用量；`internal/term` pty 跑 `tmux attach` 转 websocket；`internal/poker` 德州引擎+机器人；`internal/pet` 宠物；`internal/hub` 事件广播 |
 | `web/` | Vite + React + TS，编译进 `server/webdist` 再 `go:embed`。界面改动只需重新部署服务器，Mac 端 ⌘R 即可 |
+| `web/public/` | PWA：`manifest.webmanifest`、iOS 图标（`scripts/make-icons.py` 由 `icon.svg` 生成）；手机布局在 `styles.css` 的 `max-width: 700px` 段 |
 | `mac/` | Tauri v2 壳：设置页 + 本地转发 + 原生通知。**尽量不改**——能在 server/web 做的就不要放进 App（App 更新要用户重装） |
 | `e2e/` | Playwright 端到端测试：真服务器 + 独立 tmux socket + 假 `claude`（`e2e/bin/claude`） |
 | `plugin/` + `.claude-plugin/` | Claude Code 插件 `hub-for-claude-code`，skill `hub` 负责安装/升级/排障 |
 | `scripts/` | `check.sh` 总闸、`live-check.sh` 线上实测、`mac-check.sh` Mac 实测 |
 | `docs/requests.md` | 需求评审记录 |
 
-安全模型：只监听 Tailscale IP + 127.0.0.1；token（`data/token`）放 HttpOnly cookie；写操作要求 `X-Hub: 1` 头（挡跨站表单）；websocket 校验 Origin。任何改动不得削弱这些。
+安全模型：只监听 Tailscale IP + 127.0.0.1（iPhone 的 HTTPS 用 `tailscale serve` 反代到 127.0.0.1，只在 tailnet 内；**永远不能用 `tailscale funnel`**）；token（`data/token`）放 HttpOnly cookie；写操作要求 `X-Hub: 1` 头（挡跨站表单）；websocket 校验 Origin。任何改动不得削弱这些。
 
 ## 流程：一个需求从提出到推送
 

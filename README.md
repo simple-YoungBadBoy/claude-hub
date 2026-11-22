@@ -16,6 +16,7 @@ English · [简体中文](README.zh-CN.md)
 - **Notifications** when Claude finishes or needs your confirmation.
 - **Optional Claude Code hooks** for exact status (thinking / running a tool / waiting for permission / error) and each conversation's context usage.
 - **Usage**: today's Claude Code tokens on the server (input / output / cache) by model and project, plus the last 7 days. Token counts only, no cost estimate.
+- **iPhone**: open the same page in Safari and *Add to Home Screen* — bottom tab bar, a session drawer, a key bar (Esc / Tab / arrows / Ctrl-C / Enter) and a text box that suits the phone keyboard. Recommended with HTTPS via `tailscale serve` (stays inside your tailnet).
 - **Texas Hold'em** against four bots while you wait, and a **pixel pet** that grows while Claude works (finished tasks earn chips).
 
 All traffic leaves from the server; the Mac only renders the UI. The server listens only on its Tailscale IP and localhost, behind a token.

@@ -25,6 +25,7 @@ body {
   overflow: hidden;
 }
 button, input { font: inherit; color: inherit; }
+button { -webkit-tap-highlight-color: transparent; }
 button { cursor: pointer; border: 1px solid var(--line); background: var(--panel2); border-radius: 7px; padding: 6px 12px; transition: background .12s, border-color .12s, transform .05s; }
 button:hover:not(:disabled) { border-color: #4a443d; background: #312c27; }
 button:active:not(:disabled) { transform: translateY(1px); }
@@ -254,3 +255,43 @@ code { background: var(--panel2); padding: 1px 5px; border-radius: 4px; }
 .seg button.on { background: var(--panel2); color: var(--text); }
 .copy-later { position: absolute; right: 16px; bottom: 16px; z-index: 5; background: var(--accent); color: #1a120d; border: 0; font-weight: 600; box-shadow: 0 4px 14px #0008; }
 .copy-later:hover:not(:disabled) { background: var(--accent2); }
+
+/* phone / touch */
+.menu-btn, .keybar, .phone-only, .drawer-bg { display: none; }
+.tabs button i { font-style: normal; }
+.tabs button .tl { margin-left: 4px; }
+.keybar { gap: 4px; padding: 5px 6px; overflow-x: auto; border-top: 1px solid var(--line); background: var(--panel); flex-shrink: 0; scrollbar-width: none; }
+.keybar button { flex-shrink: 0; min-width: 42px; padding: 7px 8px; font-size: 13px; font-family: ui-monospace, "SF Mono", Menlo, monospace; touch-action: manipulation; }
+.keybar button.on { border-color: var(--accent); color: var(--accent2); }
+.composer { display: flex; gap: 6px; padding: 6px; border-top: 1px solid var(--line); background: var(--panel); flex-shrink: 0; }
+.composer textarea { flex: 1; resize: none; background: var(--bg); border: 1px solid var(--line); border-radius: 7px; padding: 6px 8px; color: var(--text); font: inherit; }
+@media (pointer: coarse) { .keybar { display: flex; } }
+@media (max-width: 700px) {
+  .app { padding-top: env(safe-area-inset-top); }
+  .desktop-only { display: none; }
+  .phone-only { display: block; }
+  .sidebar { position: fixed; z-index: 30; top: 0; bottom: 0; left: 0; width: min(300px, 85vw); padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); transform: translateX(-102%); transition: transform .2s ease; }
+  .sidebar.open { transform: none; box-shadow: 8px 0 30px #000a; }
+  .drawer-bg { display: block; position: fixed; inset: 0; z-index: 29; background: #0009; }
+  .main { flex-direction: column; }
+  .content { order: 1; }
+  .tabs { order: 2; border-bottom: 0; border-top: 1px solid var(--line); padding: 3px 2px calc(3px + env(safe-area-inset-bottom)); gap: 0; }
+  .tabs .spacer, .tabs .chips { display: none; }
+  .tabs button { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 4px 2px; font-size: 10.5px; border: 0; color: var(--muted); }
+  .tabs button i { font-size: 19px; line-height: 1.15; }
+  .tabs button .tl { margin: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tabs button.on { background: none; color: var(--accent2); }
+  .menu-btn { display: flex; }
+  .tabs .badge { position: absolute; top: 0; right: 14%; margin: 0; }
+  .term-box { padding: 4px 0 0 2px; }
+  .keybar { display: flex; overflow-x: visible; gap: 3px; padding: 5px 4px; }
+  .keybar button { flex: 1 1 0; min-width: 0; padding: 8px 0; font-size: 12px; } /* all keys fit: no sideways scrolling */
+  .toasts { left: 12px; right: 12px; bottom: calc(76px + env(safe-area-inset-bottom)); }
+  .copy-later { left: 12px; right: 12px; bottom: 60px; }
+  .pet-page { flex-direction: column; padding: 16px; }
+  .usage-page { padding: 14px; gap: 14px; }
+  .usage-card.big { grid-column: 1 / -1; }
+  .usage-block { overflow-x: auto; }
+  .usage-days { gap: 4px; height: 140px; }
+  input, textarea { font-size: 16px; } /* iOS zooms in on smaller inputs */
+}

@@ -259,6 +259,46 @@ try {
   await until(async () => (await api("/api/state")).poker.stats.chips === chips0 - 20, "fish costs 20");
   await page.screenshot({ path: join(out, "3-pet.png") });
 
+  log("iPhone: PWA files, bottom tabs, drawer, key bar and composer");
+  {
+    const man = await fetch(`${base}/manifest.webmanifest`);
+    assert(man.ok && man.headers.get("content-type").includes("manifest+json"), "manifest served");
+    assert((await man.json()).display === "standalone", "standalone PWA");
+    const icon = await fetch(`${base}/apple-touch-icon.png`);
+    assert(icon.ok && icon.headers.get("content-type") === "image/png", "apple touch icon");
+    assert(icon.headers.get("cache-control") === "no-cache", "icons are revalidated, not cached forever");
+
+    const phone = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+    await phone.addCookies([{ name: "claudehub", value: token, url: base }]);
+    const m = await phone.newPage();
+    m.on("pageerror", (e) => pageErrors.push("phone: " + String(e)));
+    await m.goto(base);
+    await m.waitForSelector(".menu-btn");
+    const nav = await m.locator("nav.tabs").boundingBox();
+    assert(nav.y > 700, `tab bar at the bottom (y=${nav.y})`);
+    assert(!(await m.locator(".sidebar").evaluate((el) => el.getBoundingClientRect().right > 0)), "drawer hidden");
+    await m.tap(".menu-btn");
+    await m.waitForSelector(".sidebar.open");
+    await m.tap('.session:has-text("renamed")');
+    await m.waitForSelector(".sidebar.open", { state: "detached" });
+    await m.waitForSelector(".conn-open");
+    await m.waitForSelector(".keybar");
+    await m.tap('.keybar button:has-text("✎")');
+    await m.fill(".composer textarea", "from phone 手机");
+    await m.tap('.composer button:has-text("发送")');
+    await until(() => screen("renamed").includes("got: from phone 手机"), "composer text + Enter reached the session");
+    await m.tap('.keybar button >> text="⏎"'); // exact: "⇧⏎" also contains ⏎
+    await until(() => /^got:\s*$/m.test(screen("renamed")), "key bar Enter reached the session");
+    assert(!screen("renamed").includes("^["), "⏎ sent a plain Enter (not Esc+Enter from a neighbouring key)");
+    const kb = await m.locator(".keybar").evaluate((el) => [el.scrollWidth, el.clientWidth]);
+    assert(kb[0] <= kb[1], `key bar fits without scrolling (${kb})`);
+    await m.screenshot({ path: join(out, "5-phone.png") });
+    await m.tap('nav.tabs button:has-text("用量")');
+    await m.waitForSelector(".usage-card.big");
+    await m.screenshot({ path: join(out, "5-phone-usage.png") });
+    await phone.close();
+  }
+
   log("closing a session kills it");
   page.once("dialog", (d) => d.accept());
   await page.click('nav.tabs button:has-text("对话")');

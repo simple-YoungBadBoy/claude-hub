@@ -37,6 +37,7 @@ export default function App() {
   const [active, setActive] = useState<string | null>(() => load("active", null));
   const [opened, setOpened] = useState<string[]>(() => (load<string | null>("active", null) ? [load("active", "")] : []));
   const [newOpen, setNewOpen] = useState(false);
+  const [drawer, setDrawer] = useState(false); // phone: session list slides in
   const [toasts, setToasts] = useState<Toast[]>([]);
   const viewRef = useRef({ tab, active });
   const ctxAlerted = useRef<Record<string, boolean>>({});
@@ -120,6 +121,7 @@ export default function App() {
     setOpened((o) => (o.includes(name) ? o : [...o.slice(-7), name]));
     setActive(name);
     setTab("chat");
+    setDrawer(false);
   };
 
   if (auth === "checking") return <div className="splash">连接中…</div>;
@@ -135,7 +137,8 @@ export default function App() {
 
   return (
     <div className="app">
-      <aside className="sidebar">
+      {drawer && <div className="drawer-bg" onClick={() => setDrawer(false)} />}
+      <aside className={`sidebar ${drawer ? "open" : ""}`}>
         <div className="brand">
           <img src="/icon.svg" alt="" />
           <span>Claude Hub</span>
@@ -146,7 +149,10 @@ export default function App() {
           hooks={st.hooks}
           active={tab === "chat" ? active : null}
           onOpen={open}
-          onNew={() => setNewOpen(true)}
+          onNew={() => {
+            setDrawer(false);
+            setNewOpen(true);
+          }}
           onKill={async (n) => {
             try {
               await api(`/api/sessions/${encodeURIComponent(n)}`, {}, "DELETE");
@@ -164,25 +170,42 @@ export default function App() {
             }
           }}
         />
-        <MiniPet pet={st.pet} hats={st.hats} signals={petSignals} onClick={() => setTab("pet")} />
+        <MiniPet
+          pet={st.pet}
+          hats={st.hats}
+          signals={petSignals}
+          onClick={() => {
+            setTab("pet");
+            setDrawer(false);
+          }}
+        />
       </aside>
 
       <main className="main">
         <nav className="tabs">
+          <button className="menu-btn" onClick={() => setDrawer(true)} aria-label="会话列表">
+            <i>☰</i>
+            <span className="tl">会话</span>
+            {counts.waiting > 0 && <span className="badge waiting">{counts.waiting}</span>}
+          </button>
           <button className={tab === "chat" ? "on" : ""} onClick={() => setTab("chat")}>
-            💬 对话
+            <i>💬</i>
+            <span className="tl">对话</span>
             {counts.working > 0 && <span className="badge working">{counts.working}</span>}
             {counts.waiting > 0 && <span className="badge waiting">{counts.waiting}</span>}
           </button>
           <button className={tab === "poker" ? "on" : ""} onClick={() => setTab("poker")}>
-            🃏 德州
+            <i>🃏</i>
+            <span className="tl">德州</span>
             {st.poker.toAct === 0 && st.poker.street !== "showdown" && <span className="badge waiting">!</span>}
           </button>
           <button className={tab === "pet" ? "on" : ""} onClick={() => setTab("pet")}>
-            🐾 {st.pet.name}
+            <i>🐾</i>
+            <span className="tl">{st.pet.name}</span>
           </button>
           <button className={tab === "usage" ? "on" : ""} onClick={() => setTab("usage")}>
-            📊 用量
+            <i>📊</i>
+            <span className="tl">用量</span>
           </button>
           <span className="spacer" />
           <span className="chips" title="筹码：德州和宠物商店通用">
@@ -197,7 +220,8 @@ export default function App() {
             ))}
             {(!active || !opened.includes(active)) && (
               <div className="placeholder">
-                <p>从左边选一个会话，或者</p>
+                <p className="desktop-only">从左边选一个会话，或者</p>
+                <p className="phone-only">点下方「☰ 会话」选一个，或者</p>
                 <button className="primary" onClick={() => setNewOpen(true)}>
                   ＋ 新对话
                 </button>

@@ -17,7 +17,7 @@
 | 3 | 侧栏默认只显示运行 `claude` 的会话，服务器上直接开的 tmux（bash）藏在「显示其他 tmux 会话」勾选框后面 | **修**：去掉勾选框，非 Claude 的 tmux 会话始终显示在「其他 tmux 会话」分组里 |
 | 4 | hub 本身 RSS 约 17MB，用量扫描峰值 44MB；隐患在于 hub 拉起的 tmux server 会落进 hub 的 cgroup，重启后 `tmux attach` 客户端会残留 | **做**：服务设 `GOMEMLIMIT`；hub 退出时关掉自己的 attach 客户端；终端连接数设上限；hub 需要拉起 tmux server 时用 `systemd-run --user --scope` 放到独立 scope（之后才能安全地给 hub 设硬内存上限）；live-check 检查 tmux server 不在 hub 的 cgroup 里。不给服务设 MemoryMax：老用户的 tmux server 可能还在 hub cgroup 里，硬上限会误杀他们的 claude |
 | 5、6 | 流程 | **做**：CLAUDE.md 写明每个任务都默认走完整流程，做完自动提交并推送、查 CI，不用用户提醒 |
-| 7 | 见下 | **用户选择：PWA + HTTPS（tailscale serve）**，这批 bug 推送后开始做 |
+| 7 | 见下 | **用户选择：PWA + HTTPS（tailscale serve）**。第一期已完成：manifest/iOS 图标、手机布局（底部标签栏、会话抽屉）、终端快捷键条与输入框、触屏不用 WebGL、`tailscale serve` 下 websocket Origin 校验（只信任来自本机的 X-Forwarded-Host）、`/api/hook` 拒绝被转发的请求、图标/manifest 不再被永久缓存。第二期：iOS 网页推送（需 HTTPS + 加到主屏幕；服务器向 Apple 推送服务发请求，需 VAPID 签名与消息加密），单独评审 |
 
 **7. iPhone 评审**：原理不变（服务器干活，手机只是界面，走 Tailscale）。
 

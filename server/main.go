@@ -14,8 +14,10 @@ import (
 	"io"
 	"io/fs"
 	"log"
+	"mime"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -82,7 +84,9 @@ func main() {
 	}
 	tmux.Socket = *socket
 
+	mime.AddExtensionType(".webmanifest", "application/manifest+json")
 	s := &server{dataDir: *data, command: *command, hub: hub.New(), mon: tmux.NewMonitor()}
+	s.up.CheckOrigin = checkOrigin
 	s.mon.Hooks = tmux.NewHookTracker()
 	s.usage = usage.New(usage.DefaultRoot())
 	if err := os.MkdirAll(s.dataDir, 0o700); err != nil {
@@ -195,6 +199,30 @@ func logRequests(h http.Handler) http.Handler {
 
 // ---- auth ----
 
+func loopback(r *http.Request) bool {
+	host, _, _ := net.SplitHostPort(r.RemoteAddr)
+	return net.ParseIP(host).IsLoopback()
+}
+
+// checkOrigin allows websockets only from our own pages: the Origin must
+// match the Host, or, for requests that `tailscale serve` (HTTPS on the
+// tailnet) proxies from loopback, the forwarded host.
+func checkOrigin(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return true // not a browser
+	}
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	if strings.EqualFold(u.Host, r.Host) {
+		return true
+	}
+	fwd := r.Header.Get("X-Forwarded-Host")
+	return fwd != "" && loopback(r) && strings.EqualFold(u.Host, fwd)
+}
+
 func (s *server) authed(r *http.Request) bool {
 	tok := ""
 	if c, err := r.Cookie(cookieName); err == nil {
@@ -246,10 +274,12 @@ func (s *server) routes(mux *http.ServeMux) {
 	sub, _ := fs.Sub(webdist, "webdist")
 	static := http.FileServer(http.FS(sub))
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/" || r.URL.Path == "/index.html" {
-			w.Header().Set("Cache-Control", "no-cache")
-		} else {
+		// only vite's content-hashed bundles are immutable; icons and the
+		// manifest keep their names across releases
+		if strings.HasPrefix(r.URL.Path, "/assets/") {
 			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		} else {
+			w.Header().Set("Cache-Control", "no-cache")
 		}
 		static.ServeHTTP(w, r)
 	})
@@ -339,7 +369,8 @@ func (s *server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/usage", s.api(func(r *http.Request) (any, error) { return s.usage.Report(), nil }))
 	mux.HandleFunc("POST /api/hook", s.api(func(r *http.Request) (any, error) {
 		// only the local `claude-hub hook` client posts here
-		if host, _, _ := net.SplitHostPort(r.RemoteAddr); !net.ParseIP(host).IsLoopback() {
+		// (tailscale serve also connects from loopback, but marks it forwarded)
+		if !loopback(r) || r.Header.Get("X-Forwarded-For") != "" {
 			return nil, errors.New("hooks are accepted from localhost only")
 		}
 		var e tmux.HookEvent
