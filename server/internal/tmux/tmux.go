@@ -28,8 +28,10 @@ type Session struct {
 	PaneID   string   `json:"paneId"`   // active pane, e.g. "%3"
 	Activity string   `json:"activity"` // e.g. "运行 Bash", "等你确认：…" (hooks only)
 	Context  *Context `json:"context,omitempty"`
-	Hooked   bool     `json:"hooked"` // status comes from Claude Code hooks
-	Hub      bool     `json:"hub"`    // created from the hub (tmux option @claudehub)
+	Hooked   bool     `json:"hooked"`            // status comes from Claude Code hooks
+	Hub      bool     `json:"hub"`               // created from the hub (tmux option @claudehub)
+	Prompt   *Prompt  `json:"prompt,omitempty"`  // open numbered choice while waiting
+	Summary  *Summary `json:"summary,omitempty"` // what the conversation is about
 }
 
 // Socket, when set, makes every call use a private tmux server

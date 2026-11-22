@@ -174,6 +174,9 @@ try {
   assert((await page.locator(".hooks-hint").count()) === 0, "hint hidden once hooks report");
   await page.waitForSelector(`.session:has-text("${name}") .dot.idle`, { timeout: 15000 });
   await page.waitForSelector(`.session:has-text("${name}") .ctx-high:has-text("85%")`, { timeout: 5000 });
+  log("summary: AI title and Claude's last words in the sidebar");
+  await page.waitForSelector(`.session:has-text("${name}") .session-title:has-text("假任务标题")`, { timeout: 5000 });
+  await page.waitForSelector(`.session:has-text("${name}") .session-last:has-text("做完了：假回复")`);
   await page.screenshot({ path: join(out, "1b-hooks-context.png") });
 
   log("hooks: permission prompt → waiting, worried pet, then back to idle");
@@ -183,11 +186,16 @@ try {
   await page.waitForSelector(`.session:has-text("${name}") .session-sub:has-text("等你确认：Bash")`);
   await page.waitForSelector(".mini-pet .mood-worried");
   assert((await api("/api/state")).pet.message.includes("在等你确认"), "pet reacts to waiting");
+  log("approval card: question, command, options; a tap sends the option's number");
+  await page.waitForSelector('.prompt-card .prompt-q:has-text("Do you want to proceed?")', { timeout: 5000 });
+  assert((await page.locator(".prompt-detail").innerText()).includes("touch hello.txt"), "card shows the command");
+  await page.waitForSelector('.prompt-opts button:has-text("allow access to /tmp/x from this project")'); // wrapped label joined
+  assert((await page.locator(".prompt-opts button").count()) === 3, "three options");
   await page.screenshot({ path: join(out, "1c-waiting.png") });
-  await page.keyboard.type("yes");
-  await page.keyboard.press("Enter");
+  await page.click('.prompt-opts button:has-text("No")');
+  await page.waitForSelector(".prompt-card", { state: "detached", timeout: 5000 });
   await page.waitForSelector(`.session:has-text("${name}") .dot.idle`, { timeout: 10000 });
-  assert(screen(name).includes("answered: yes"), "answer reached the session");
+  assert(screen(name).includes("answered: 3"), "option number reached the session");
 
   log("hooks CLI: install/uninstall into the (temporary) Claude config");
   const hooksCli = (...a) => execFileSync(bin, ["hooks", ...a], { env, encoding: "utf8" });
@@ -296,6 +304,12 @@ try {
     await until(() => screen("renamed").includes("got: from phone 手机"), "composer text + Enter reached the session");
     assert((await m.inputValue(".composer textarea")) === "", "composer cleared after send");
     assert(String(await m.evaluate(() => window.__clearedBy)).startsWith("delete"), "composer cleared as an edit the keyboard sees (not a script value write)");
+    log("composer history: refill a sent message");
+    await m.tap(".composer .hist-btn");
+    await m.tap('.hist button:has-text("from phone 手机")');
+    assert((await m.inputValue(".composer textarea")) === "from phone 手机", "history refills the composer");
+    assert(!(await m.locator(".composer button.primary").isDisabled()), "send enabled after refill");
+    await m.locator(".composer textarea").evaluate((el) => (el.value = ""));
     await m.tap('.keybar button >> text="⏎"'); // exact: "⇧⏎" also contains ⏎
     await until(() => /^got:\s*$/m.test(screen("renamed")), "key bar Enter reached the session");
     assert(!screen("renamed").includes("^["), "⏎ sent a plain Enter (not Esc+Enter from a neighbouring key)");

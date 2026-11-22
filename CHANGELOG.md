@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- One-tap approval: when Claude asks for permission (or asks a numbered question), a card under the terminal shows the question, the command and the options — tap one instead of typing. Works with or without hooks.
+- Session list shows what each conversation is about (Claude Code's own title) and, when idle, Claude's last words.
+- ✎ text box: 🕘 recent messages to resend, a hint that the keyboard's dictation works, and no more iOS zoom when it gets focus.
 - Fix (iPhone): with Sogou and other third-party keyboards, inserting text in the middle of the ✎ box after sending a message no longer deletes earlier characters.
 - Fix (iPhone): Chinese input with third-party keyboards (Sogou, WeChat…) in the ✎ text box no longer gets wiped by background updates before it is committed.
 - iPhone: the web UI is now an installable home-screen app (PWA) with a phone layout — bottom tab bar, session drawer, a key bar (Esc / Tab / ⇧Tab / arrows / Ctrl-C / ⇧⏎ / ⏎) and a text box for the phone keyboard. Works over `tailscale serve` HTTPS (websocket origin check accepts the proxied host); the hub skill now uses port 8443 so it doesn't clash with a web server already on 443.

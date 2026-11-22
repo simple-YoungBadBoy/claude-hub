@@ -5,9 +5,11 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
 import { upload, wsURL } from "../api";
+import type { Session } from "../types";
 
 type Props = {
   session: string;
+  info?: Session;
   visible: boolean;
   onToast: (msg: string, err?: boolean) => void;
 };
@@ -79,7 +81,25 @@ function imageFiles(list: FileList | DataTransferItemList | null | undefined): F
   return out;
 }
 
-export default function Terminal({ session, visible, onToast }: Props) {
+// Recently sent composer texts: a per-device convenience, so browser storage.
+const HIST_KEY = "hub.sent";
+function loadHist(): string[] {
+  try {
+    const h = JSON.parse(localStorage.getItem(HIST_KEY) || "[]");
+    return Array.isArray(h) ? h.filter((x) => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
+function saveHist(text: string) {
+  try {
+    localStorage.setItem(HIST_KEY, JSON.stringify([text, ...loadHist().filter((x) => x !== text)].slice(0, 30)));
+  } catch {
+    /* storage unavailable */
+  }
+}
+
+export default function Terminal({ session, info, visible, onToast }: Props) {
   const box = useRef<HTMLDivElement>(null);
   const termRef = useRef<XTerm | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -94,6 +114,10 @@ export default function Terminal({ session, visible, onToast }: Props) {
   // keyboards (Sogou, WeChat) before it is committed.
   const draftRef = useRef<HTMLTextAreaElement>(null);
   const [hasDraft, setHasDraft] = useState(false);
+  const [hist, setHist] = useState<string[] | null>(null);
+  const [answered, setAnswered] = useState("");
+  const prompt = info?.status === "waiting" ? info.prompt : undefined;
+  const promptKey = prompt ? JSON.stringify(prompt) : "";
   const fileInput = useRef<HTMLInputElement>(null);
   const toastRef = useRef(onToast);
   toastRef.current = onToast;
@@ -284,8 +308,26 @@ export default function Terminal({ session, visible, onToast }: Props) {
     if (!box || !text) return;
     sendInput(text.includes("\n") ? `\x1b[200~${text}\x1b[201~` : text);
     window.setTimeout(() => sendInput("\r"), 120);
+    saveHist(text);
     clearDraft(box);
     setHasDraft(false);
+    setHist(null);
+  };
+  // fill from history as an edit too, so the keyboard sees it
+  const fillDraft = (text: string) => {
+    const box = draftRef.current;
+    setHist(null);
+    if (!box) return;
+    box.focus();
+    box.select();
+    let ok = false;
+    try {
+      ok = document.execCommand("insertText", false, text);
+    } catch {
+      /* unsupported */
+    }
+    if (!ok || box.value !== text) box.value = text;
+    setHasDraft(text.trim() !== "");
   };
   // Clear through the editing pipeline, not `value = ""`: a script write is
   // invisible to iOS third-party keyboards (Sogou), which then keep the sent
@@ -366,6 +408,27 @@ export default function Terminal({ session, visible, onToast }: Props) {
         />
       </div>
       <div className="term-box" ref={box} />
+      {prompt && answered !== promptKey && (
+        <div className="prompt-card">
+          <div className="prompt-q">{prompt.question}</div>
+          {prompt.detail && prompt.detail.length > 0 && <pre className="prompt-detail">{prompt.detail.join("\n")}</pre>}
+          <div className="prompt-opts">
+            {prompt.options.map((o) => (
+              <button
+                key={o.key}
+                className={o.key === "1" ? "primary" : ""}
+                onPointerDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  sendInput(o.key);
+                  setAnswered(promptKey);
+                }}
+              >
+                <b>{o.key}</b> {o.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="keybar">
         {KEYS.map(([label, seq, title]) => (
           <button
@@ -390,13 +453,32 @@ export default function Terminal({ session, visible, onToast }: Props) {
             sendDraft();
           }}
         >
+          {hist && (
+            <div className="hist">
+              {hist.length === 0 && <div className="muted small">还没有发过消息</div>}
+              {hist.map((h, i) => (
+                <button key={i} type="button" onPointerDown={(e) => e.preventDefault()} onClick={() => fillDraft(h)}>
+                  {h}
+                </button>
+              ))}
+            </div>
+          )}
           <textarea
             autoFocus
             rows={2}
             ref={draftRef}
-            placeholder="在这里输入，点发送（回车换行）"
+            placeholder="在这里输入，点发送（回车换行）· 也可用键盘上的 🎤 听写"
             onInput={(e) => setHasDraft(e.currentTarget.value.trim() !== "")}
           />
+          <button
+            type="button"
+            className={`ghost hist-btn ${hist ? "on" : ""}`}
+            title="最近发过的消息"
+            onPointerDown={(e) => e.preventDefault()}
+            onClick={() => setHist((h) => (h ? null : loadHist()))}
+          >
+            🕘
+          </button>
           <button className="primary" disabled={!hasDraft}>
             发送
           </button>

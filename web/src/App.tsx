@@ -216,7 +216,7 @@ export default function App() {
         <div className="content">
           <div className="terms" style={{ display: tab === "chat" ? "flex" : "none" }}>
             {opened.map((n) => (
-              <Terminal key={n} session={n} visible={tab === "chat" && active === n} onToast={toast} />
+              <Terminal key={n} session={n} info={st.sessions.find((x) => x.name === n)} visible={tab === "chat" && active === n} onToast={toast} />
             ))}
             {(!active || !opened.includes(active)) && (
               <div className="placeholder">

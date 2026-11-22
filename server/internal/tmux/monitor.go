@@ -2,6 +2,7 @@ package tmux
 
 import (
 	"log"
+	"os"
 	"reflect"
 	"sync"
 	"time"
@@ -13,6 +14,7 @@ type Monitor struct {
 	sessions []Session
 	status   map[string]string
 	grace    map[string]int // consecutive non-working polls while still reported as working
+	guess    map[string]*guessed
 
 	// Hooks, when set, refines status with Claude Code hook events.
 	Hooks *HookTracker
@@ -25,7 +27,43 @@ type Monitor struct {
 	OnTick func(working int)
 }
 
-func NewMonitor() *Monitor { return &Monitor{status: map[string]string{}, grace: map[string]int{}} }
+// guessed is the summary of a session without hooks, from the newest
+// transcript in its project directory (looked up every ~10s).
+type guessed struct {
+	path, key string
+	looked    time.Time
+	sum       *Summary
+}
+
+func NewMonitor() *Monitor {
+	return &Monitor{status: map[string]string{}, grace: map[string]int{}, guess: map[string]*guessed{}}
+}
+
+// guessSummary is called with m.mu held.
+func (m *Monitor) guessSummary(s *Session) *Summary {
+	g := m.guess[s.Name]
+	if g == nil {
+		g = &guessed{}
+		m.guess[s.Name] = g
+	}
+	if time.Since(g.looked) > 10*time.Second {
+		g.looked = time.Now()
+		if p := LatestTranscript(ProjectsDir(), s.Path); p != g.path {
+			g.path, g.key, g.sum = p, "", nil
+		}
+	}
+	if g.path == "" {
+		return nil
+	}
+	if fi, err := os.Stat(g.path); err == nil {
+		if key := fi.ModTime().String() + "/" + itoa(fi.Size()); key != g.key {
+			g.key = key
+			_, sum := ReadTranscript(g.path)
+			g.sum = keepTitle(sum, g.sum)
+		}
+	}
+	return g.sum
+}
 
 // Sessions returns the latest snapshot.
 func (m *Monitor) Sessions() []Session {
@@ -87,6 +125,11 @@ func (m *Monitor) poll() {
 				s.Status, s.Activity, s.Context, s.Hooked = st, act, ctx, true
 			}
 		}
+		if s.Hooked {
+			s.Summary = m.Hooks.summary(s.PaneID)
+		} else {
+			s.Summary = m.guessSummary(s)
+		}
 		// The spinner can vanish for a moment between tool calls; only leave
 		// "working" after it has been gone for two polls in a row.
 		if !s.Hooked && ok && prev == "working" && s.Status == "idle" && m.grace[s.Name] < 1 {
@@ -94,6 +137,9 @@ func (m *Monitor) poll() {
 			s.Status = "working"
 		} else {
 			m.grace[s.Name] = 0
+		}
+		if s.Status == "waiting" {
+			s.Prompt = ParsePrompt(scr)
 		}
 		if ok && prev != s.Status {
 			trs = append(trs, tr{s.Name, prev, s.Status})
@@ -104,6 +150,7 @@ func (m *Monitor) poll() {
 		if !seen[n] {
 			delete(m.status, n)
 			delete(m.grace, n)
+			delete(m.guess, n)
 		}
 	}
 	if m.Hooks != nil {

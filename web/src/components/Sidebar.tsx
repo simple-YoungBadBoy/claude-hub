@@ -64,6 +64,12 @@ export default function Sidebar(p: Props) {
             {s.name}
           </div>
         )}
+        {s.claude && s.summary?.title && <div className="session-title">{s.summary.title}</div>}
+        {s.claude && s.status === "idle" && s.summary?.last && (
+          <div className="session-last" title={s.summary.last}>
+            ↳ {s.summary.last}
+          </div>
+        )}
         <div className="session-sub" title={s.activity || undefined}>
           {s.claude ? s.activity || statusText[s.status] : s.command} · {shortPath(s.path)}
         </div>

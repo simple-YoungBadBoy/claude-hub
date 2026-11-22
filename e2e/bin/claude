@@ -26,15 +26,18 @@ while IFS= read -r line; do
     sleep 4
     hook PostToolUse Bash
     # 170k of a 200k window = 85%
-    echo '{"type":"assistant","message":{"model":"claude-fake","usage":{"input_tokens":10,"cache_read_input_tokens":160000,"cache_creation_input_tokens":9990,"output_tokens":0}}}' >> "$TRANSCRIPT"
+    echo '{"type":"ai-title","aiTitle":"假任务标题"}' >> "$TRANSCRIPT"
+    echo '{"type":"assistant","message":{"model":"claude-fake","content":[{"type":"text","text":"做完了：假回复"}],"usage":{"input_tokens":10,"cache_read_input_tokens":160000,"cache_creation_input_tokens":9990,"output_tokens":0}}}' >> "$TRANSCRIPT"
     hook Stop
     clear
     echo "finished"
   elif [[ $line == hask* ]]; then       # a permission prompt
     hook UserPromptSubmit
     hook PermissionRequest Bash
-    echo "Do you want to proceed?"
-    IFS= read -r answer
+    printf '%s\n' "────────────────────" " Bash command" " touch hello.txt" " Do you want to proceed?" " ❯ 1. Yes" \
+      "   2. Yes, and always allow access to /tmp/x" "      from this project" "   3. No" "" " Esc to cancel"
+    IFS= read -r -n1 answer   # Claude Code picks an option on its number key
+    echo
     hook PostToolUse Bash
     hook Stop
     clear

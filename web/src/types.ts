@@ -10,6 +10,8 @@ export type Session = {
   activity: string;
   context?: { tokens: number; limit: number; pct: number; model?: string };
   hooked: boolean;
+  prompt?: { question: string; detail?: string[]; options: { key: string; label: string }[] };
+  summary?: { title?: string; last?: string };
 };
 
 export type Player = {

@@ -1,10 +1,6 @@
 package tmux
 
 import (
-	"bufio"
-	"bytes"
-	"encoding/json"
-	"io"
 	"os"
 	"strings"
 	"sync"
@@ -40,6 +36,7 @@ type paneState struct {
 	at       time.Time
 	stale    int // polls where the screen disagrees with "working"
 	ctx      *Context
+	sum      *Summary
 	ctxKey   string // transcript size+mtime the context was read at
 	sawHooks bool
 }
@@ -76,7 +73,7 @@ func (h *HookTracker) Apply(e HookEvent) {
 	p.sawHooks = true
 	p.at = time.Now()
 	if e.Session != "" && e.Session != p.session {
-		p.session, p.ctx, p.ctxKey = e.Session, nil, ""
+		p.session, p.ctx, p.sum, p.ctxKey = e.Session, nil, nil, ""
 	}
 	if e.Transcript != "" {
 		p.transcr = e.Transcript
@@ -153,9 +150,11 @@ func (h *HookTracker) resolve(pane, screen string) (status, detail string, ctx *
 			key := fi.ModTime().String() + "/" + itoa(fi.Size())
 			if key != p.ctxKey {
 				p.ctxKey = key
-				if c := ReadContext(p.transcr); c != nil {
+				c, sum := ReadTranscript(p.transcr)
+				if c != nil {
 					p.ctx = c
 				}
+				p.sum = keepTitle(sum, p.sum)
 			}
 		}
 	}
@@ -164,6 +163,28 @@ func (h *HookTracker) resolve(pane, screen string) (status, detail string, ctx *
 		status = "working"
 	}
 	return status, describe(st, p.detail), p.ctx, true
+}
+
+// summary is the latest transcript summary of a hooked pane.
+func (h *HookTracker) summary(pane string) *Summary {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if p := h.panes[pane]; p != nil {
+		return p.sum
+	}
+	return nil
+}
+
+// keepTitle keeps the previous title when the tail no longer contains one
+// (the AI title is written early; long turns push it out of the tail).
+func keepTitle(now, prev *Summary) *Summary {
+	if now == nil {
+		return prev
+	}
+	if now.Title == "" && prev != nil {
+		now.Title = prev.Title
+	}
+	return now
 }
 
 func describe(state, detail string) string {
@@ -202,63 +223,4 @@ func itoa(n int64) string {
 		n /= 10
 	}
 	return string(b)
-}
-
-// ReadContext reads the last assistant message's usage from a Claude Code
-// transcript (.jsonl) and estimates how full the context window is.
-func ReadContext(path string) *Context {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil
-	}
-	defer f.Close()
-	const tail = 512 * 1024
-	if fi, err := f.Stat(); err == nil && fi.Size() > tail {
-		f.Seek(fi.Size()-tail, io.SeekStart)
-	}
-	data, _ := io.ReadAll(f)
-	var best *Context
-	sc := bufio.NewScanner(bytes.NewReader(data))
-	sc.Buffer(make([]byte, 1024*1024), 8*1024*1024)
-	for sc.Scan() {
-		line := sc.Bytes()
-		if !bytes.Contains(line, []byte(`"usage"`)) {
-			continue
-		}
-		var rec struct {
-			Type        string `json:"type"`
-			IsSidechain bool   `json:"isSidechain"`
-			Message     struct {
-				Model string `json:"model"`
-				Usage struct {
-					Input       int `json:"input_tokens"`
-					CacheRead   int `json:"cache_read_input_tokens"`
-					CacheCreate int `json:"cache_creation_input_tokens"`
-					Output      int `json:"output_tokens"`
-				} `json:"usage"`
-			} `json:"message"`
-		}
-		if json.Unmarshal(line, &rec) != nil || rec.Type != "assistant" || rec.IsSidechain {
-			continue
-		}
-		u := rec.Message.Usage
-		tokens := u.Input + u.CacheRead + u.CacheCreate + u.Output
-		if tokens == 0 {
-			continue
-		}
-		best = &Context{Tokens: tokens, Model: rec.Message.Model}
-	}
-	if best == nil {
-		return nil
-	}
-	best.Limit = 200_000
-	// Claude Code doesn't record the window size; above 200k it must be 1M
-	if best.Tokens > best.Limit || strings.Contains(best.Model, "[1m]") {
-		best.Limit = 1_000_000
-	}
-	best.Pct = float64(best.Tokens) * 100 / float64(best.Limit)
-	if best.Pct > 100 {
-		best.Pct = 100
-	}
-	return best
 }
