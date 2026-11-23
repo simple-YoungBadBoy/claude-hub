@@ -7,7 +7,7 @@ import Markdown from "./Markdown";
 
 export type InspectTab = "chat" | "git" | "files";
 
-type ChatTool = { name: string; input?: string; error?: boolean };
+type ChatTool = { name: string; input?: string; error?: boolean; output?: string; running?: boolean };
 type ChatMsg = { role: "user" | "assistant"; text?: string; tools?: ChatTool[]; at?: string };
 type Chat = { messages: ChatMsg[]; truncated?: boolean };
 type Change = { path: string; from?: string; status: string };
@@ -110,23 +110,35 @@ function ChatView({ session, status }: { session: string; status: string }) {
       {data.messages.map((m, i) => (
         <div key={i} className={`chat-msg ${m.role}`}>
           {m.text && (m.role === "user" ? <div className="chat-user">{m.text}</div> : <Markdown text={m.text} />)}
-          {m.tools && m.tools.length > 0 && (
-            <details className="chat-tools">
-              <summary>
-                🔧 {m.tools.length} 个工具调用
-                {m.tools.some((t) => t.error) && <span className="chat-err"> · 有出错</span>}
-                <span className="muted"> · {[...new Set(m.tools.map((t) => t.name))].slice(0, 5).join("、")}</span>
-              </summary>
-              {m.tools.map((t, j) => (
-                <div key={j} className={`chat-tool ${t.error ? "err" : ""}`}>
-                  <b>{t.name}</b> <span className="muted">{t.input}</span>
-                </div>
-              ))}
-            </details>
-          )}
+          {m.tools && m.tools.length > 0 && <ToolCalls tools={m.tools} live={status === "working"} />}
         </div>
       ))}
     </div>
+  );
+}
+
+// a message's tool calls, folded; each opens to the start of its result
+function ToolCalls({ tools, live }: { tools: ChatTool[]; live: boolean }) {
+  const running = live ? tools.filter((t) => t.running).length : 0;
+  const [open, setOpen] = useState<number | null>(null);
+  return (
+    <details className="chat-tools" open={running > 0 || undefined}>
+      <summary>
+        🔧 {tools.length} 个工具调用
+        {running > 0 && <span className="chat-run"> · {running} 个进行中</span>}
+        {tools.some((t) => t.error) && <span className="chat-err"> · 有出错</span>}
+        <span className="muted"> · {[...new Set(tools.map((t) => t.name))].slice(0, 5).join("、")}</span>
+      </summary>
+      {tools.map((t, j) => (
+        <div key={j} className={`chat-tool ${t.error ? "err" : ""} ${live && t.running ? "run" : ""}`}>
+          <button className="chat-tool-head" disabled={!t.output} onClick={() => setOpen(open === j ? null : j)} title={t.output ? "看结果" : undefined}>
+            {live && t.running ? <span className="spin">⏳</span> : t.output ? <span className="muted">{open === j ? "▾" : "▸"}</span> : null}
+            <b>{t.name}</b> <span className="muted">{t.input}</span>
+          </button>
+          {open === j && t.output && <pre className="chat-out">{t.output}</pre>}
+        </div>
+      ))}
+    </details>
   );
 }
 

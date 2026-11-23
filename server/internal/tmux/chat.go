@@ -11,10 +11,18 @@ import (
 
 // ChatTool is one tool call, shown collapsed.
 type ChatTool struct {
-	Name  string `json:"name"`
-	Input string `json:"input,omitempty"` // the interesting argument, clipped
-	Error bool   `json:"error,omitempty"` // its result was an error
+	Name    string `json:"name"`
+	Input   string `json:"input,omitempty"`   // the interesting argument, clipped
+	Error   bool   `json:"error,omitempty"`   // its result was an error
+	Output  string `json:"output,omitempty"`  // the start of its result
+	Running bool   `json:"running,omitempty"` // no result yet
 }
+
+const (
+	outputRunes  = 1200    // of one tool result
+	outputLines  = 24      // of one tool result
+	outputBudget = 400_000 // bytes of results in one chat, newest kept
+)
 
 // ChatMsg is one turn of a conversation as a reader sees it.
 type ChatMsg struct {
@@ -81,14 +89,16 @@ func ReadChat(path string, max int) (*Chat, error) {
 		case "user":
 			// tool results: mark failed calls, otherwise skip
 			var blocks []struct {
-				Type      string `json:"type"`
-				ToolUseID string `json:"tool_use_id"`
-				IsError   bool   `json:"is_error"`
+				Type      string          `json:"type"`
+				ToolUseID string          `json:"tool_use_id"`
+				IsError   bool            `json:"is_error"`
+				Content   json.RawMessage `json:"content"`
 			}
 			if json.Unmarshal(rec.Message.Content, &blocks) == nil && len(blocks) > 0 && blocks[0].Type == "tool_result" {
 				for _, b := range blocks {
-					if at, ok := toolAt[b.ToolUseID]; ok && b.IsError && at[0] < len(msgs) {
-						msgs[at[0]].Tools[at[1]].Error = true
+					if at, ok := toolAt[b.ToolUseID]; ok && at[0] < len(msgs) {
+						t := &msgs[at[0]].Tools[at[1]]
+						t.Error, t.Running, t.Output = b.IsError, false, resultText(b.Content)
 					}
 				}
 				continue
@@ -123,7 +133,7 @@ func ReadChat(path string, max int) (*Chat, error) {
 				case "tool_use":
 					if len(m.Tools) < 200 {
 						toolAt[b.ID] = [2]int{len(msgs) - 1, len(m.Tools)}
-						m.Tools = append(m.Tools, ChatTool{Name: b.Name, Input: toolInput(b.Input)})
+						m.Tools = append(m.Tools, ChatTool{Name: b.Name, Input: toolInput(b.Input), Running: true})
 					}
 				}
 			}
@@ -139,8 +149,49 @@ func ReadChat(path string, max int) (*Chat, error) {
 	if len(out) > max {
 		out, chat.Truncated = out[len(out)-max:], true
 	}
+	budget := outputBudget // the newest results matter most: drop older ones past the budget
+	for i := len(out) - 1; i >= 0; i-- {
+		for j := len(out[i].Tools) - 1; j >= 0; j-- {
+			t := &out[i].Tools[j]
+			if budget -= len(t.Output); budget < 0 {
+				t.Output = ""
+			}
+		}
+	}
 	chat.Messages = append(chat.Messages, out...)
 	return chat, nil
+}
+
+// resultText is the start of a tool result: a string, or its text blocks.
+func resultText(raw json.RawMessage) string {
+	var s string
+	if json.Unmarshal(raw, &s) != nil {
+		var blocks []struct{ Type, Text string }
+		json.Unmarshal(raw, &blocks)
+		var parts []string
+		for _, b := range blocks {
+			switch b.Type {
+			case "text":
+				parts = append(parts, b.Text)
+			case "image":
+				parts = append(parts, "[图片]")
+			}
+		}
+		s = strings.Join(parts, "\n")
+	}
+	s = strings.TrimSpace(s)
+	lines := strings.SplitN(s, "\n", outputLines+1)
+	cut := len(lines) > outputLines
+	if cut {
+		s = strings.Join(lines[:outputLines], "\n")
+	}
+	if r := []rune(s); len(r) > outputRunes {
+		s, cut = string(r[:outputRunes]), true
+	}
+	if cut {
+		s += "\n…"
+	}
+	return s
 }
 
 // toolInput picks the argument that says what a tool call did.

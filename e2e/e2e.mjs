@@ -227,7 +227,7 @@ try {
     join(data, "fake-transcript.jsonl"),
     rec({ type: "user", message: { role: "user", content: "把 README 改一下" } }) +
       rec({ type: "assistant", message: { content: [{ type: "tool_use", id: "e1", name: "Edit", input: { file_path: join(data, "README.md") } }] } }) +
-      rec({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "e1", content: "ok" }] } }) +
+      rec({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "e1", content: "README.md 已更新：第 3 行" }] } }) +
       rec({ type: "assistant", message: { content: [{ type: "text", text: "<div align=\"center\">\n## 改好了\n- 加了 **一行**\n\n| 文件 | 行 |\n|---|---|\n| README.md | 2 |\n\n[x](javascript:alert(1))" }] } }),
   );
   await page.click(".insp-toggle");
@@ -238,6 +238,9 @@ try {
   assert((await page.locator(".chat a").count()) === 0, "javascript: links are not clickable");
   assert(!(await page.locator(".chat").innerText()).includes("<div"), "HTML-only lines are hidden, never rendered");
   await page.waitForSelector('.chat-tools summary:has-text("1 个工具调用")');
+  await page.click('.chat-tools summary:has-text("1 个工具调用")');
+  await page.click('.chat-tool-head:has-text("Edit")');
+  await page.waitForSelector('.chat-out:has-text("README.md 已更新：第 3 行")');
   await page.screenshot({ path: join(out, "1d-inspect-chat.png") });
 
   log("± 改动: git changes of the session's directory, diff per file");
