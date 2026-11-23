@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import type { PokerView } from "../types";
+import { play, pokerSounds, setSoundOn, soundOn, unlock } from "../sound";
 
 const SUIT: Record<string, string> = { s: "♠", h: "♥", d: "♦", c: "♣" };
 const STREET: Record<string, string> = { idle: "等待开局", preflop: "翻牌前", flop: "翻牌", turn: "转牌", river: "河牌", showdown: "本手结束" };
@@ -35,7 +36,16 @@ export default function Poker({ v, onToast }: { v: PokerView; onToast: (m: strin
     if (legal) setRaise(legal.minRaiseTo);
   }, [legal?.minRaiseTo, v.hand, v.street]);
 
+  // sound effects: compare with the view before this one
+  const [sound, setSound] = useState(soundOn);
+  const prev = useRef<PokerView>();
+  useEffect(() => {
+    play(pokerSounds(prev.current, v));
+    prev.current = v;
+  }, [v]);
+
   const send = async (path: string, body?: object) => {
+    unlock(); // iOS: audio only starts from a tap
     try {
       await api(`/api/poker/${path}`, body ?? {});
     } catch (e) {
@@ -78,6 +88,16 @@ export default function Poker({ v, onToast }: { v: PokerView; onToast: (m: strin
     <div className="poker">
       <div className="poker-main">
         <div className="table">
+          <button
+            className="ghost sound-toggle"
+            title={sound ? "关掉音效" : "打开音效"}
+            onClick={() => {
+              setSoundOn(!sound);
+              setSound(!sound);
+            }}
+          >
+            {sound ? "🔊" : "🔇"}
+          </button>
           <div className="felt">
             <div className="board">
               {[0, 1, 2, 3, 4].map((i) => (

@@ -374,6 +374,13 @@ try {
     assert(sum > 0, "chips present");
   }
   await page.screenshot({ path: join(out, "2-poker.png") });
+  const heard = await page.evaluate(() => window.__pokerSounds.join(","));
+  for (const s of ["deal", "turn"]) assert(heard.includes(s), `poker plays ${s}: ${heard}`);
+  assert(/win|lose/.test(heard), `a finished hand sounds: ${heard}`);
+  await page.click(".sound-toggle");
+  assert((await page.textContent(".sound-toggle")).includes("🔇"), "sound can be muted");
+  assert((await page.evaluate(() => localStorage.getItem("pokerSound"))) === "off", "mute is remembered");
+  await page.click(".sound-toggle");
 
   log("dock without opening the session first (fresh page straight on 德州)");
   await page.evaluate(() => {

@@ -212,6 +212,7 @@ code { background: var(--panel2); padding: 1px 5px; border-radius: 4px; }
 .poker { flex: 1; display: flex; min-width: 0; }
 .poker-main { flex: 1; display: flex; flex-direction: column; min-width: 0; padding: 20px; gap: 16px; }
 .table { position: relative; flex: 1; min-height: 360px; }
+.sound-toggle { position: absolute; left: 6px; bottom: 6px; z-index: 2; padding: 4px 8px; font-size: 16px; line-height: 1; }
 .felt { position: absolute; inset: 14% 10% 20%; border-radius: 999px; background: radial-gradient(ellipse at center, var(--felt) 0%, var(--felt2) 75%); border: 10px solid #3b2a1e; box-shadow: inset 0 0 40px #0007, 0 10px 40px #0006; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; }
 .board { display: flex; gap: 6px; }
 .pot { font-weight: 700; color: #ffe39a; font-size: 15px; }
