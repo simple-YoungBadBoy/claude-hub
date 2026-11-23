@@ -422,6 +422,11 @@ try {
     assert(u.days.length === 7, "7-day series");
     await page.click('.seg button:has-text("输出")');
     await page.waitForSelector('.usage-day.today .usage-day-val:has-text("4.0k")');
+    await page.waitForSelector('.server-load .sl-v:has-text("还剩")');
+    const sys = await api("/api/system");
+    assert(sys.available && sys.memTotal > 0 && sys.hubRss > 0, `server load read: ${JSON.stringify(sys).slice(0, 200)}`);
+    assert(sys.sessions.some((x) => x.name === "renamed" && x.rss > 0 && x.procs > 0), "memory of each tmux session's processes");
+    await page.waitForSelector('.sl-sessions td:has-text("renamed")');
     await page.screenshot({ path: join(out, "4-usage.png") });
   }
 

@@ -259,6 +259,7 @@ code { background: var(--panel2); padding: 1px 5px; border-radius: 4px; }
 
 /* usage */
 .usage-page { flex: 1; overflow-y: auto; padding: 20px 24px; display: flex; flex-direction: column; gap: 18px; }
+.usage-page > * { flex-shrink: 0; } /* sections with overflow-x would otherwise be squashed to nothing */
 .usage-page.placeholder { align-items: center; justify-content: center; color: var(--muted); }
 .usage-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
 .usage-head h3 { margin: 0; }
@@ -471,3 +472,16 @@ button.past-more { align-self: flex-start; font-size: 12px; }
 .commit-row code { flex-shrink: 0; font-size: 11.5px; }
 .commit-row .git-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .commit-at { flex-shrink: 0; font-size: 11.5px; }
+
+/* usage page: server load */
+.server-load .sl-row { display: grid; grid-template-columns: 40px 1fr auto; align-items: center; gap: 10px; margin: 6px 0; font-size: 12.5px; }
+.sl-k { color: var(--muted); }
+.sl-v { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.sl-bar { height: 8px; border-radius: 99px; background: var(--panel2); overflow: hidden; }
+.sl-fill { height: 100%; background: #4caf73; border-radius: 99px; transition: width 0.4s; }
+.sl-fill.warn { background: var(--yellow); }
+.sl-fill.bad { background: #e5534b; }
+.sl-note { font-size: 12px; margin-top: 4px; }
+.sl-sessions { margin-top: 8px; }
+.sl-sessions .sl-mini { width: 35%; }
+.new-mem { font-size: 12px; }

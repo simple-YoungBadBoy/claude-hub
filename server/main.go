@@ -34,6 +34,7 @@ import (
 	"claudehub/internal/pet"
 	"claudehub/internal/poker"
 	"claudehub/internal/store"
+	"claudehub/internal/sysinfo"
 	"claudehub/internal/term"
 	"claudehub/internal/tmux"
 	"claudehub/internal/usage"
@@ -314,6 +315,9 @@ func (s *server) routes(mux *http.ServeMux) {
 	})
 
 	mux.HandleFunc("GET /api/state", s.api(func(r *http.Request) (any, error) { return s.state(), nil }))
+	mux.HandleFunc("GET /api/system", s.api(func(r *http.Request) (any, error) {
+		return sysinfo.Read(tmux.PanePIDs()), nil
+	}))
 	mux.HandleFunc("GET /api/version", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"version": Version})

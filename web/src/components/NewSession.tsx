@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
+import { fmtBytes, memTight, useSysInfo } from "./ServerLoad";
 
 export type CreateOpts = { resume?: string; fork?: boolean };
 type Past = { id: string; title: string; last?: string; at: number; open?: string };
@@ -13,6 +14,9 @@ type Props = {
 export default function NewSession({ dirs, onCreate, onClose }: Props) {
   const [name, setName] = useState("");
   const [dir, setDir] = useState(dirs[0] ?? "~");
+  const sys = useSysInfo(10000);
+  const per = sys?.sessions.filter((x) => x.rss > 0) ?? [];
+  const avg = per.length ? per.reduce((a, x) => a + x.rss, 0) / per.length : 0;
   const [past, setPast] = useState<Past[]>([]);
   const [resume, setResume] = useState("");
   const [fork, setFork] = useState(false);
@@ -105,6 +109,12 @@ export default function NewSession({ dirs, onCreate, onClose }: Props) {
                 分叉成一个新对话（原来那段不受影响，适合试另一种做法）
               </label>
             )}
+          </div>
+        )}
+        {sys?.available && (
+          <div className={`new-mem ${memTight(sys) ? "error" : "muted"}`}>
+            服务器还剩 {fmtBytes(sys.memAvail)} 内存{avg > 0 && `，每个会话平均占 ${fmtBytes(avg)}`}
+            {memTight(sys) && "，有点紧张，建议先关掉不用的会话"}
           </div>
         )}
         {err && <div className="error">{err}</div>}

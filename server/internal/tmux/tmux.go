@@ -246,3 +246,19 @@ func scopeAvailable() bool {
 	})
 	return scopeOK
 }
+
+// PanePIDs lists the pid of every pane's process, by session.
+func PanePIDs() map[string][]int {
+	out := map[string][]int{}
+	s, err := run("list-panes", "-a", "-F", "#{session_name}\t#{pane_pid}")
+	if err != nil {
+		return out
+	}
+	for _, l := range strings.Split(s, "\n") {
+		name, pid, ok := strings.Cut(l, "\t")
+		if n, err := strconv.Atoi(strings.TrimSpace(pid)); ok && err == nil {
+			out[name] = append(out[name], n)
+		}
+	}
+	return out
+}

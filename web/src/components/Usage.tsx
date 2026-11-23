@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import ServerLoad from "./ServerLoad";
 import { api } from "../api";
 import type { UsageCounts, UsageReport } from "../types";
 
@@ -101,6 +102,8 @@ export default function Usage({ onToast }: { onToast: (m: string, err?: boolean)
           {busy ? "统计中…" : "刷新"}
         </button>
       </div>
+
+      <ServerLoad />
 
       <div className="usage-cards">
         <div className="usage-card big">
