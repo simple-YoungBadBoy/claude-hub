@@ -12,6 +12,8 @@ type ChatMsg = { role: "user" | "assistant"; text?: string; tools?: ChatTool[]; 
 type Chat = { messages: ChatMsg[]; truncated?: boolean };
 type Change = { path: string; from?: string; status: string };
 type Git = { repo: boolean; root?: string; branch?: string; changes: Change[]; truncated?: boolean };
+type Commit = { sha: string; short: string; subject: string; author: string; at: number; pushed: boolean };
+type Log = { upstream?: string; ahead: number; behind: number; commits: Commit[] };
 type Diff = { path: string; text: string; binary?: boolean; truncated?: boolean };
 type Entry = { name: string; dir: boolean; size: number };
 type FileView = { path: string; dir: boolean; text?: string; binary?: boolean; size: number; truncated?: boolean; entries?: Entry[] };
@@ -167,16 +169,63 @@ function GitView({ session, status }: { session: string; status: string }) {
                 {c.path}
               </span>
             </button>
-            {open === c.path && <DiffView session={session} path={c.path} />}
+            {open === c.path && <DiffView session={session} url={`/api/sessions/${enc(session)}/diff?path=${enc(c.path)}`} />}
           </div>
         );
       })}
+      <CommitList session={session} status={status} />
     </div>
   );
 }
 
-function DiffView({ session, path }: { session: string; path: string }) {
-  const { data, err } = useLoad<Diff>(`/api/sessions/${enc(session)}/diff?path=${enc(path)}`, []);
+const ago = (at: number) => {
+  const s = Date.now() / 1000 - at;
+  if (s < 3600) return `${Math.max(1, Math.floor(s / 60))} 分钟前`;
+  if (s < 86400) return `${Math.floor(s / 3600)} 小时前`;
+  if (s < 86400 * 30) return `${Math.floor(s / 86400)} 天前`;
+  return new Date(at * 1000).toLocaleDateString();
+};
+
+// the branch's recent commits: what Claude already committed, and whether it is pushed
+function CommitList({ session, status }: { session: string; status: string }) {
+  const { data } = useLoad<Log>(`/api/sessions/${enc(session)}/commits`, [status]);
+  const [open, setOpen] = useState<string | null>(null);
+  if (!data?.commits.length) return null;
+  return (
+    <div className="commits">
+      <div className="git-head commits-head">
+        <span>
+          提交
+          {data.upstream ? (
+            <span className="muted">
+              {" "}
+              · 相对 {data.upstream}
+              {data.ahead > 0 && <b className="unpushed"> {data.ahead} 个没推送</b>}
+              {data.behind > 0 && <span> · 落后 {data.behind} 个</span>}
+              {!data.ahead && !data.behind && " 已同步"}
+            </span>
+          ) : (
+            <span className="muted"> · 没有上游分支</span>
+          )}
+        </span>
+      </div>
+      {data.commits.map((c) => (
+        <div key={c.sha} className="git-file">
+          <button className={`git-row commit-row ${open === c.sha ? "on" : ""}`} onClick={() => setOpen(open === c.sha ? null : c.sha)} title={`${c.author} · ${new Date(c.at * 1000).toLocaleString()}`}>
+            <code className="muted">{c.short}</code>
+            <span className="git-path">{c.subject}</span>
+            {data.upstream && !c.pushed && <span className="git-st add">未推送</span>}
+            <span className="muted commit-at">{ago(c.at)}</span>
+          </button>
+          {open === c.sha && <DiffView session={session} url={`/api/sessions/${enc(session)}/commit?sha=${enc(c.sha)}`} />}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function DiffView({ url }: { session: string; url: string }) {
+  const { data, err } = useLoad<Diff>(url, []);
   if (err) return <div className="insp-empty error">{err}</div>;
   if (!data) return <div className="insp-empty">读取中…</div>;
   if (data.binary) return <div className="insp-empty">二进制文件，不显示内容</div>;

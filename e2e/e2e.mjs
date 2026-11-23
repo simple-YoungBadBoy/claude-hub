@@ -255,7 +255,12 @@ try {
   await page.waitForSelector('.git-row:has-text("notes/todo.md") .git-st.add');
   await page.click('.git-row:has-text("README.md")');
   await page.waitForSelector('.diff .add:has-text("+新的一行")');
+  await page.click('.commit-row:has-text("init")');
+  await page.waitForSelector('.commits .diff .add:has-text("+第一行")');
+  assert(await page.locator('.commits-head:has-text("没有上游分支")').count(), "no upstream: nothing marked unpushed");
   await page.screenshot({ path: join(out, "1e-inspect-git.png") });
+  const badSha = await api(`/api/sessions/${encodeURIComponent(name)}/commit?sha=${encodeURIComponent("HEAD~1")}`);
+  assert(badSha.error, "commit diff only for a hex commit id");
 
   log("📁 文件: browse the directory, Markdown rendered, never outside it");
   await page.click('.insp-tabs button:has-text("文件")');

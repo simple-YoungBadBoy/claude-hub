@@ -412,6 +412,20 @@ func (s *server) routes(mux *http.ServeMux) {
 		}
 		return workspace.FileDiff(cwd, r.URL.Query().Get("path"))
 	}))
+	mux.HandleFunc("GET /api/sessions/{name}/commits", s.api(func(r *http.Request) (any, error) {
+		cwd, _, err := s.locate(r)
+		if err != nil {
+			return nil, err
+		}
+		return workspace.Commits(cwd)
+	}))
+	mux.HandleFunc("GET /api/sessions/{name}/commit", s.api(func(r *http.Request) (any, error) {
+		cwd, _, err := s.locate(r)
+		if err != nil {
+			return nil, err
+		}
+		return workspace.CommitDiff(cwd, r.URL.Query().Get("sha"))
+	}))
 	mux.HandleFunc("GET /api/sessions/{name}/file", s.api(func(r *http.Request) (any, error) {
 		cwd, _, err := s.locate(r)
 		if err != nil {

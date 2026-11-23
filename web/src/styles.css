@@ -463,3 +463,11 @@ button.past-row.on { border-color: var(--accent); background: color-mix(in srgb,
 .past-last { grid-column: 1 / -1; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 button.past-more { align-self: flex-start; font-size: 12px; }
 .modal .past label.check { flex-direction: row; align-items: center; text-align: left; }
+
+/* inspector: the branch's commits */
+.commits { margin-top: 10px; }
+.git-head.commits-head { position: static; border-top: 1px solid var(--line); }
+.commits-head .unpushed { color: var(--yellow); }
+.commit-row code { flex-shrink: 0; font-size: 11.5px; }
+.commit-row .git-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.commit-at { flex-shrink: 0; font-size: 11.5px; }

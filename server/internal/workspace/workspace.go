@@ -200,7 +200,8 @@ func gitCapped(dir string, max int, args ...string) ([]byte, error) {
 	defer cancel()
 	base := []string{"-C", dir,
 		"-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false",
-		"-c", "diff.external=", "-c", "core.pager=cat", "-c", "color.ui=false"}
+		"-c", "diff.external=", "-c", "core.pager=cat", "-c", "color.ui=false",
+		"-c", "log.showSignature=false"} // gpg.program is repo-configurable
 	cmd := exec.CommandContext(ctx, "git", append(base, args...)...)
 	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0", "GIT_TERMINAL_PROMPT=0", "GIT_PAGER=cat", "LC_ALL=C")
 	var out, errb bytes.Buffer

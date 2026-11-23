@@ -134,3 +134,41 @@ func TestParseStatusRename(t *testing.T) {
 		t.Fatalf("%+v", ch)
 	}
 }
+
+func TestCommits(t *testing.T) {
+	dir := gitInit(t)
+	l, err := Commits(dir)
+	if err != nil || len(l.Commits) != 1 || l.Commits[0].Subject != "init" || l.Upstream != "" || l.Commits[0].Pushed {
+		t.Fatalf("%+v %v", l, err)
+	}
+	// a clone has an upstream: its own new commit is unpushed, the cloned one pushed
+	clone := filepath.Join(t.TempDir(), "c")
+	run := func(d string, args ...string) {
+		cmd := exec.Command("git", append([]string{"-C", d, "-c", "user.name=t", "-c", "user.email=t@t"}, args...)...)
+		cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+	run(dir, "clone", "-q", dir, clone)
+	write(t, filepath.Join(clone, "b.txt"), "b\n")
+	run(clone, "add", ".")
+	run(clone, "commit", "-q", "-m", "加 b")
+	l, err = Commits(clone)
+	if err != nil || l.Upstream != "origin/main" || l.Ahead != 1 || l.Behind != 0 || len(l.Commits) != 2 ||
+		l.Commits[0].Pushed || l.Commits[0].Subject != "加 b" || !l.Commits[1].Pushed {
+		t.Fatalf("%+v %v", l, err)
+	}
+	d, err := CommitDiff(clone, l.Commits[0].Short)
+	if err != nil || !strings.Contains(d.Text, "+b\n") || !strings.Contains(d.Text, "    加 b") || !strings.Contains(d.Text, "b.txt | 1 +") {
+		t.Fatalf("%+v %v", d, err)
+	}
+	for _, bad := range []string{"HEAD", "--output=/tmp/x", "abc", "0000000"} {
+		if _, err := CommitDiff(clone, bad); err == nil {
+			t.Fatalf("%q must be refused", bad)
+		}
+	}
+	if l, _ := Commits(t.TempDir()); l == nil || len(l.Commits) != 0 {
+		t.Fatal("not a repo")
+	}
+}
