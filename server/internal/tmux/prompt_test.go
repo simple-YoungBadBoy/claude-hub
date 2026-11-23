@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // captured from Claude Code 2.1 (tmux capture-pane)
@@ -98,5 +99,29 @@ func TestLatestTranscript(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "a.jsonl"), []byte("{}"), 0o600)
 	if got := LatestTranscript(root, "/home/u/my.proj_x"); got != filepath.Join(dir, "a.jsonl") {
 		t.Fatalf("got %q", got)
+	}
+}
+
+func TestHistory(t *testing.T) {
+	root := t.TempDir()
+	dir := ProjectDir(root, "/home/u/proj")
+	os.MkdirAll(dir, 0o700)
+	a, b, empty := "11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222", "33333333-3333-3333-3333-333333333333"
+	os.WriteFile(filepath.Join(dir, a+".jsonl"), []byte(`{"type":"ai-title","aiTitle":"修登录"}`+"\n"), 0o600)
+	os.WriteFile(filepath.Join(dir, b+".jsonl"), []byte(`{"type":"user","message":{"role":"user","content":"加个按钮"}}`+"\n"+`{"type":"assistant","message":{"content":[{"type":"text","text":"加好了"}]}}`+"\n"), 0o600)
+	os.WriteFile(filepath.Join(dir, empty+".jsonl"), []byte(`{"type":"summary"}`+"\n"), 0o600)
+	os.WriteFile(filepath.Join(dir, "notes.jsonl"), []byte(`{"type":"ai-title","aiTitle":"x"}`+"\n"), 0o600)
+	old := time.Now().Add(-time.Hour)
+	os.Chtimes(filepath.Join(dir, a+".jsonl"), old, old)
+	h := History(root, "/home/u/proj", 10)
+	if len(h) != 2 || h[0].ID != b || h[0].Title != "加个按钮" || h[0].Last != "加好了" || h[1].Title != "修登录" {
+		t.Fatalf("newest first, untitled and non-uuid skipped: %+v", h)
+	}
+	if h := History(root, "/home/u/proj", 1); len(h) != 1 {
+		t.Fatalf("limit: %+v", h)
+	}
+	if !HasConversation(root, "/home/u/proj", a) || HasConversation(root, "/home/u/other", a) ||
+		HasConversation(root, "/home/u/proj", "notes") || HasConversation(root, "/home/u/proj", "../"+a) {
+		t.Fatal("HasConversation")
 	}
 }

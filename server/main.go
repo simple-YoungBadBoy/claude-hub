@@ -322,14 +322,26 @@ func (s *server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/sessions", s.api(func(r *http.Request) (any, error) {
 		var body struct {
 			Name, Dir string
-			Continue  bool // resume the directory's last conversation
+			Continue  bool   // resume the directory's last conversation
+			Resume    string // or this one (a session id from /api/history)
+			Fork      bool   // as a new conversation branching off it
 		}
 		if err := decode(r, &body); err != nil {
 			return nil, err
 		}
 		dir := expandHome(strings.TrimSpace(body.Dir))
 		command := s.command
-		if body.Continue {
+		switch {
+		case body.Resume != "":
+			// only ids of this directory's transcripts: the id goes into a shell command
+			if !tmux.HasConversation(tmux.ProjectsDir(), filepath.Clean(dir), body.Resume) {
+				return nil, errors.New("这个目录里没有这段对话")
+			}
+			command += " --resume " + body.Resume
+			if body.Fork {
+				command += " --fork-session"
+			}
+		case body.Continue:
 			command += " --continue"
 		}
 		name, err := tmux.Create(body.Name, dir, command)
@@ -340,6 +352,18 @@ func (s *server) routes(mux *http.ServeMux) {
 		s.rememberDir(dir)
 		s.mon.Poke()
 		return map[string]string{"name": name}, nil
+	}))
+	mux.HandleFunc("GET /api/history", s.api(func(r *http.Request) (any, error) {
+		dir := filepath.Clean(expandHome(strings.TrimSpace(r.URL.Query().Get("dir"))))
+		if !filepath.IsAbs(dir) {
+			return []tmux.Past{}, nil
+		}
+		list := tmux.History(tmux.ProjectsDir(), dir, 20)
+		open := s.mon.OpenTranscripts()
+		for i := range list {
+			list[i].Open = open[filepath.Join(tmux.ProjectDir(tmux.ProjectsDir(), dir), list[i].ID+".jsonl")]
+		}
+		return list, nil
 	}))
 	mux.HandleFunc("DELETE /api/sessions/{name}", s.api(func(r *http.Request) (any, error) {
 		err := tmux.Kill(r.PathValue("name"))

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- New session lists the folder's earlier conversations (title, last reply, when): pick one to pick it up again (`--resume`), or fork it into a new conversation to try another approach.
 - Input bar completion like Claude Code's own: type `@` to pick a file or folder of the session's project (respects .gitignore), `/` to pick a command, including your own custom commands and skills. ↑↓ to choose, Tab / Enter to take it; Enter on a command runs it.
 - While playing poker or on the pet / usage tab, the terminal now docks on wide screens even if you haven't opened the session yet (it picks the one that needs you most). On narrow windows and the phone a slim strip shows what each Claude session is doing; tap it to jump to the terminal.
 - 📖 查看 in the terminal bar opens a read-only side panel: the conversation as chat (Markdown rendered, tool calls folded), the git changes of the session's folder with a diff per file, and a file browser that renders Markdown. ⌘-click (or tap on the phone) a file path in the terminal to open it. It only reads inside the session's working folder.

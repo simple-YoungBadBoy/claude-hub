@@ -325,8 +325,8 @@ export default function App() {
         <NewSession
           dirs={newOpen.dir ? [newOpen.dir, ...st.dirs.filter((d) => d !== newOpen.dir)] : st.dirs}
           onClose={() => setNewOpen(false)}
-          onCreate={async (name, dir, cont) => {
-            const r = await api<{ name: string }>("/api/sessions", { name, dir, continue: cont });
+          onCreate={async (name, dir, opts) => {
+            const r = await api<{ name: string }>("/api/sessions", { name, dir, ...opts });
             setNewOpen(false);
             open(r.name);
           }}

@@ -197,7 +197,7 @@ func ProjectsDir() string {
 // LatestTranscript guesses a session's transcript without hooks: the newest
 // .jsonl in the project directory Claude Code derives from the cwd.
 func LatestTranscript(projects, cwd string) string {
-	dir := filepath.Join(projects, nonAlnum.ReplaceAllString(cwd, "-"))
+	dir := ProjectDir(projects, cwd)
 	ents, err := os.ReadDir(dir)
 	if err != nil {
 		return ""

@@ -324,10 +324,29 @@ try {
   await until(() => tmux("list-panes", "-t", `=${cont.name}:`, "-F", "#{pane_start_command}").includes("--continue"), "started with --continue");
   tmux("kill-session", "-t", `=${cont.name}`);
 
+  log("new session can pick up (or fork) one of the directory's earlier conversations");
+  const pastId = "0e2e0e2e-1111-4222-8333-444455556666";
+  const pastDir = join(claudeConfig, "projects", data.replace(/[^A-Za-z0-9-]/g, "-"));
+  mkdirSync(pastDir, { recursive: true });
+  writeFileSync(join(pastDir, `${pastId}.jsonl`), '{"type":"ai-title","aiTitle":"上次修的登录页"}\n{"type":"assistant","message":{"content":[{"type":"text","text":"登录页修好了"}]}}\n');
+  await page.click(`.project-head:has-text("${basename(data)}") button`);
+  await page.click('.past-row:has-text("上次修的登录页")');
+  assert((await page.textContent(".past-row.on")).includes("登录页修好了"), "shows Claude's last words");
+  await page.click('.past label.check input');
+  await page.click('.modal button.primary:has-text("分叉")');
+  await page.waitForSelector(".modal", { state: "detached" });
+  const forked = (await api("/api/state")).sessions.find((s) => tmux("list-panes", "-t", `=${s.name}:`, "-F", "#{pane_start_command}").includes(`--resume ${pastId} --fork-session`));
+  assert(forked, "started with --resume <id> --fork-session");
+  tmux("kill-session", "-t", `=${forked.name}`);
+  await page.waitForSelector(`.session-name >> text=${forked.name}`, { state: "detached", timeout: 8000 });
+  await page.click(".session-name >> text=renamed");
+  const bad = await api("/api/sessions", { dir: data, resume: "x; touch /tmp/pwned" });
+  assert(!bad.name && bad.error, "only ids of the directory's transcripts are accepted");
+
   log("poker: play hands to showdown (terminal docked on the right)");
   await page.click('nav.tabs button:has-text("德州")');
   await page.waitForSelector(".terms.docked", { timeout: 5000 });
-  assert(await page.locator(".terms.docked .term-box").isVisible(), "active terminal stays visible beside the game");
+  assert(await page.locator(".terms.docked .term-box:visible").first().isVisible(), "active terminal stays visible beside the game");
   for (let hand = 0; hand < 3; hand++) {
     await page.click('.actions button.primary:has-text("开始"), .actions button.primary:has-text("下一手")');
     // bots "think" 0.7–1.6s per action, so a hand can take ~30s
@@ -355,7 +374,7 @@ try {
   });
   await page.reload();
   await page.waitForSelector(".terms.docked .term-box", { timeout: 10000 });
-  assert(await page.locator(".terms.docked .term-box").isVisible(), "the session that needs you most is docked");
+  assert(await page.locator(".terms.docked .term-box:visible").first().isVisible(), "the session that needs you most is docked");
   log("narrow window: a live strip instead of the dock, a tap opens the terminal");
   await page.setViewportSize({ width: 1000, height: 800 });
   await page.waitForSelector(".live-strip .live-item .live-name", { timeout: 5000 });
