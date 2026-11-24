@@ -90,9 +90,9 @@ var botNames = []string{"幺鸡", "二筒", "红中哥"}
 
 func New(saved Saved, w Wallet) *Game {
 	g := &Game{rng: rand.New(rand.NewSource(time.Now().UnixNano())), phase: "idle", saved: saved, wallet: w, turn: -1}
-	g.players[0] = &Player{ID: 0, Name: "你", Que: -1}
+	g.players[0] = &Player{ID: 0, Name: "你", Que: -1, drawn: -1}
 	for i, n := range botNames {
-		g.players[i+1] = &Player{ID: i + 1, Name: n, Bot: true, Que: -1}
+		g.players[i+1] = &Player{ID: i + 1, Name: n, Bot: true, Que: -1, drawn: -1}
 	}
 	g.BotDelay = func() time.Duration { return time.Duration(450+g.rng.Intn(600)) * time.Millisecond }
 	return g
@@ -708,7 +708,7 @@ func (g *Game) viewLocked() View {
 		c.Count = p.hand.total()
 		if p.ID == Human || g.phase == "end" {
 			h := p.hand
-			if p.ID == Human && p.drawn >= 0 {
+			if p.ID == Human && p.drawn >= 0 && g.inRound() {
 				h[p.drawn]--
 				v.Drawn = p.drawn
 			}

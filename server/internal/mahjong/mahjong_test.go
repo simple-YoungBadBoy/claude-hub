@@ -186,6 +186,9 @@ func TestRoundsFinishAndChipsBalance(t *testing.T) {
 func TestStartNeedsChipsAndIdlePoker(t *testing.T) {
 	w := &wallet{chips: 50}
 	g := New(Saved{}, w)
+	if v := g.View(); v.Drawn != -1 || len(v.Players[Human].Hand) != 0 {
+		t.Fatalf("no tiles before the first round: %+v", v)
+	}
 	if err := g.Start(); err == nil {
 		t.Fatal("too few chips")
 	}

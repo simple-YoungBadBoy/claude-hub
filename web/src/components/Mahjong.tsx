@@ -45,7 +45,7 @@ function Melds({ melds }: { melds: MjMeld[] }) {
 function Badges({ p, v }: { p: MjPlayer; v: MahjongView }) {
   return (
     <>
-      {v.dealer === p.id && <span className="dealer">庄</span>}
+      {v.dealer === p.id && v.phase !== "idle" && <span className="dealer">庄</span>}
       {p.que >= 0 && <span className="mj-que">缺{SUIT[p.que]}</span>}
       {p.hu && <span className="mj-hu">胡 {p.huName}</span>}
       {(v.phase === "end" || p.net !== 0) && <span className={`mj-net ${p.net >= 0 ? "up" : "down"}`}>{p.net >= 0 ? `+${p.net}` : p.net}</span>}
@@ -100,7 +100,7 @@ export default function Mahjong({ v, onToast }: { v: MahjongView; onToast: (m: s
                   <b>{p.name}</b>
                   <span className="muted small">{SEAT[id]}</span>
                   <Badges p={p} v={v} />
-                  <span className="mj-count muted small">{v.phase === "end" ? "" : `🀫×${p.count}`}</span>
+                  <span className="mj-count muted small">{v.phase === "dingque" || v.phase === "play" ? `🀫×${p.count}` : ""}</span>
                   {p.lastAction && <span className="seat-action">{p.lastAction}</span>}
                 </div>
                 <div className="mj-row">
