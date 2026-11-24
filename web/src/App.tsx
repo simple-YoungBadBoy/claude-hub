@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, connectEvents, Unauthorized } from "./api";
-import type { HubState, PetState, PokerView, Session } from "./types";
+import type { HubState, MahjongView, PetState, PokerView, Session } from "./types";
 import { chime, notify } from "./notify";
 import Login from "./components/Login";
 import Sidebar, { groupSessions } from "./components/Sidebar";
@@ -8,11 +8,12 @@ import { getTheme, setTheme as applyThemeChoice, type Theme } from "./theme";
 import NewSession from "./components/NewSession";
 import Terminal from "./components/Terminal";
 import Poker from "./components/Poker";
+import Mahjong from "./components/Mahjong";
 import Pet, { MiniPet } from "./components/Pet";
 import Usage from "./components/Usage";
 import LiveStrip from "./components/LiveStrip";
 
-type Tab = "chat" | "poker" | "pet" | "usage";
+type Tab = "chat" | "poker" | "mahjong" | "pet" | "usage";
 type Toast = { id: number; msg: string; err?: boolean };
 
 const load = <T,>(k: string, d: T): T => {
@@ -99,6 +100,9 @@ export default function App() {
         }
         case "poker":
           setSt((s) => (s ? { ...s, poker: data as PokerView } : s));
+          break;
+        case "mahjong":
+          setSt((s) => (s ? { ...s, mahjong: data as MahjongView } : s));
           break;
         case "pet":
           setSt((s) => (s ? { ...s, pet: data as PetState } : s));
@@ -261,6 +265,11 @@ export default function App() {
             <span className="tl">德州</span>
             {st.poker.toAct === 0 && st.poker.street !== "showdown" && <span className="badge waiting">!</span>}
           </button>
+          <button className={tab === "mahjong" ? "on" : ""} onClick={() => setTab("mahjong")}>
+            <i>🀄</i>
+            <span className="tl">麻将</span>
+            {st.mahjong.options && <span className="badge waiting">!</span>}
+          </button>
           <button className={tab === "pet" ? "on" : ""} onClick={() => setTab("pet")}>
             <i>🐾</i>
             <span className="tl">{st.pet.name}</span>
@@ -286,7 +295,7 @@ export default function App() {
           >
             {theme === "light" ? "🌙" : "☀️"}
           </button>
-          <span className="chips" title="筹码：德州和宠物商店通用">
+          <span className="chips" title="筹码：德州、麻将和宠物商店通用">
             🪙 {st.poker.stats.chips.toLocaleString()}
           </span>
         </nav>
@@ -317,6 +326,7 @@ export default function App() {
           </div>
           {tab === "usage" && <Usage onToast={toast} />}
           {tab === "poker" && <Poker v={st.poker} onToast={toast} />}
+          {tab === "mahjong" && <Mahjong v={st.mahjong} onToast={toast} />}
           {tab === "pet" && <Pet pet={st.pet} foods={st.foods} hats={st.hats} chips={st.poker.stats.chips} signals={petSignals} onToast={toast} />}
         </div>
       </main>

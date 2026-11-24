@@ -31,6 +31,7 @@ import (
 
 	"claudehub/internal/hooks"
 	"claudehub/internal/hub"
+	"claudehub/internal/mahjong"
 	"claudehub/internal/pet"
 	"claudehub/internal/poker"
 	"claudehub/internal/store"
@@ -60,6 +61,7 @@ type server struct {
 	hub     *hub.Hub
 	mon     *tmux.Monitor
 	table   *poker.Table
+	mahjong *mahjong.Game
 	pet     *pet.Pet
 	usage   *usage.Scanner
 	push    *webpush.Pusher // nil if the VAPID key couldn't be set up
@@ -84,6 +86,7 @@ func main() {
 	command := flag.String("cmd", "claude", "command run in new sessions")
 	socket := flag.String("tmux-socket", "", "use a private tmux server (tmux -L NAME); for tests")
 	escMs := flag.Int("tmux-escape-time", 10, "lower tmux's escape-time to this many ms if it is still the 500ms default (Esc reacts at once); -1 leaves it alone")
+	mjBotMs := flag.Int("mahjong-bot-ms", -1, "fixed thinking time of the mahjong bots in ms; for tests")
 	version := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
 	if *version {
@@ -110,6 +113,17 @@ func main() {
 	s.table = poker.NewTable(saved)
 	s.table.Persist = func(v poker.Saved) { logErr(store.Save(s.path("poker.json"), v)) }
 	s.table.OnChange = func(v poker.View) { s.hub.Publish("poker", v) }
+
+	var ms mahjong.Saved
+	if err := store.Load(s.path("mahjong.json"), &ms); err != nil {
+		log.Printf("mahjong.json: %v", err)
+	}
+	s.mahjong = mahjong.New(ms, s.table)
+	s.mahjong.Persist = func(v mahjong.Saved) { logErr(store.Save(s.path("mahjong.json"), v)) }
+	s.mahjong.OnChange = func(v mahjong.View) { s.hub.Publish("mahjong", v) }
+	if *mjBotMs >= 0 {
+		s.mahjong.BotDelay = func() time.Duration { return time.Duration(*mjBotMs) * time.Millisecond }
+	}
 
 	var ps pet.State
 	if err := store.Load(s.path("pet.json"), &ps); err != nil {
@@ -552,6 +566,23 @@ func (s *server) routes(mux *http.ServeMux) {
 		return nil, s.table.Act(body.Action, body.Amount)
 	}))
 
+	// mahjong
+	mux.HandleFunc("POST /api/mahjong/start", s.api(func(r *http.Request) (any, error) { return nil, s.mahjong.Start() }))
+	mux.HandleFunc("POST /api/mahjong/act", s.api(func(r *http.Request) (any, error) {
+		var body struct {
+			Action string
+			Tile   int
+			Suit   int
+		}
+		if err := decode(r, &body); err != nil {
+			return nil, err
+		}
+		if body.Action == "que" {
+			return nil, s.mahjong.ChooseQue(body.Suit)
+		}
+		return nil, s.mahjong.Act(body.Action, mahjong.Tile(body.Tile))
+	}))
+
 	// pet
 	type petBody struct{ ID, Name string }
 	petAction := func(fn func(b petBody) (pet.State, error)) http.HandlerFunc {
@@ -587,6 +618,7 @@ func (s *server) state() map[string]any {
 	return map[string]any{
 		"sessions": s.mon.Sessions(),
 		"poker":    s.table.View(),
+		"mahjong":  s.mahjong.View(),
 		"pet":      s.pet.Get(),
 		"foods":    pet.Foods,
 		"hats":     pet.Hats,

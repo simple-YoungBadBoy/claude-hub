@@ -63,7 +63,7 @@ const env = {
   CLAUDE_HUB_BIN: bin,
 };
 delete env.TMUX;
-const server = spawn(bin, ["-addr", `127.0.0.1:${port}`, "-data", data, "-tmux-socket", socket, "-cmd", fake], {
+const server = spawn(bin, ["-addr", `127.0.0.1:${port}`, "-data", data, "-tmux-socket", socket, "-cmd", fake, "-mahjong-bot-ms", "40"], {
   stdio: ["ignore", "pipe", "pipe"],
   env,
 });
@@ -382,6 +382,48 @@ try {
   assert((await page.evaluate(() => localStorage.getItem("pokerSound"))) === "off", "mute is remembered");
   await page.click(".sound-toggle");
 
+  log("mahjong: void suit, tap a tile twice to discard, play a round to the end");
+  const mjChips = (await api("/api/state")).poker.stats.chips;
+  await page.click('nav.tabs button:has-text("麻将")');
+  await page.click('.actions button.primary:has-text("开始")');
+  await page.waitForSelector('.actions button:has-text("缺万")');
+  assert((await api("/api/state")).poker.stats.chips === mjChips - 500, "the stake is held during the round");
+  assert(!(await page.locator(".mj-opp .mj-que").count()), "bots' void suits stay hidden until you choose");
+  await page.click('.actions button.primary:has-text("缺")'); // the suggested one
+  await page.waitForSelector(".mj-opp .mj-que");
+  let tapped = false;
+  for (const end = Date.now() + 120000; Date.now() < end; ) {
+    const v = (await api("/api/state")).mahjong;
+    if (v.phase === "end") break;
+    const o = v.options;
+    if (o?.pass) await api("/api/mahjong/act", { action: o.hu ? "hu" : "pass" });
+    else if (o?.discard && o.hu) await api("/api/mahjong/act", { action: "hu" });
+    else if (o?.discard) {
+      const me = v.players[0];
+      const all = [...me.hand, ...(v.drawn >= 0 ? [v.drawn] : [])];
+      const q = o.mustQue ? all.find((t) => Math.floor(t / 9) === me.que) : undefined;
+      const pick = q ?? (v.drawn >= 0 ? v.drawn : all[all.length - 1]);
+      if (!tapped) {
+        const tile = page.locator(`.mj-hand .tile[data-tile="${pick}"]`).first();
+        await tile.click();
+        await page.waitForSelector(".mj-hand .tile.sel");
+        assert(me.discards.length === (await api("/api/state")).mahjong.players[0].discards.length, "one tap only lifts the tile");
+        await tile.click();
+        await until(async () => (await api("/api/state")).mahjong.players[0].discards.length > me.discards.length || (await api("/api/state")).mahjong.phase === "end", "the second tap discards");
+        tapped = true;
+      } else await api("/api/mahjong/act", { action: "discard", tile: pick });
+    }
+    await sleep(30);
+  }
+  const mv = (await api("/api/state")).mahjong;
+  assert(mv.phase === "end" && tapped, "a round of mahjong finished");
+  assert(mv.players.reduce((a, p) => a + p.net, 0) === 0, "what is won is what is lost");
+  assert((await api("/api/state")).poker.stats.chips === mjChips + mv.players[0].net, "the result is settled into the shared chips");
+  await page.waitForSelector(".mj-result");
+  assert((await page.evaluate(() => window.__pokerSounds.join(","))).includes("clack"), "discards clack");
+  await page.screenshot({ path: join(out, "2c-mahjong.png") });
+  await page.click('nav.tabs button:has-text("德州")');
+
   log("dock without opening the session first (fresh page straight on 德州)");
   await page.evaluate(() => {
     localStorage.setItem("active", "null");
@@ -508,6 +550,11 @@ try {
     assert(ib.width >= 380, `inspector full width on the phone (${ib.width})`);
     await m.screenshot({ path: join(out, "5-phone-inspect.png") });
     await m.tap(".insp-close");
+    await m.tap('nav.tabs button:has-text("麻将")');
+    await m.waitForSelector(".mj-hand .tile");
+    const mw = await m.evaluate(() => [document.documentElement.scrollWidth, innerWidth]);
+    assert(mw[0] <= mw[1], `mahjong fits the phone width (${mw})`);
+    await m.screenshot({ path: join(out, "5-phone-mahjong.png") });
     await m.tap('nav.tabs button:has-text("用量")');
     await m.waitForSelector(".usage-card.big");
     await m.waitForSelector(".live-strip .live-item");

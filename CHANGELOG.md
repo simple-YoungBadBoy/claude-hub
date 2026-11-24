@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- New 🀄 mahjong tab: Sichuan bloody-battle rules (void suit, pong and kong, play on after a win) against three bots, with spoken calls; each round holds 500 chips from the shared stack, so you never lose more than that.
 - Poker has sound effects (deal, chips, check, fold, your turn, win/lose), synthesized in the browser, with a mute button on the table.
 - 💬 conversation view: tap a tool call to see the start of its result (command output, error text); calls still running are marked, so a long subagent or command no longer looks stuck.
 - The usage tab shows how loaded the server is: free memory, CPU load and how much memory each session's processes take; the new-session dialog tells you the memory left and warns when it is tight. Also fixes the usage tables being squashed on the phone.

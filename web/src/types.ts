@@ -45,6 +45,39 @@ export type PokerView = {
   myHand?: string;
 };
 
+export type MjMeld = { kind: "peng" | "gang" | "angang"; tile: number };
+export type MjPlayer = {
+  id: number;
+  name: string;
+  bot: boolean;
+  que: number;
+  hu: boolean;
+  huName?: string;
+  huFan: number;
+  huTile: number;
+  net: number;
+  melds: MjMeld[];
+  discards: number[];
+  count: number;
+  hand?: number[];
+  lastAction?: string;
+};
+export type MahjongView = {
+  phase: "idle" | "dingque" | "play" | "end";
+  round: number;
+  dealer: number;
+  turn: number;
+  wall: number;
+  players: MjPlayer[];
+  drawn: number;
+  last?: { from: number; tile: number };
+  options?: { discard: boolean; hu: boolean; gang?: number[]; peng: boolean; pass: boolean; tile: number; mustQue: boolean };
+  queHint: number;
+  stake: number;
+  log: string[];
+  stats: { rounds: number; wins: number; net: number; bestFan: number; bestName?: string };
+};
+
 export type PetState = {
   name: string;
   born: string;
@@ -66,6 +99,7 @@ export type Hat = { id: string; name: string; emoji: string; cost: number; level
 export type HubState = {
   sessions: Session[];
   poker: PokerView;
+  mahjong: MahjongView;
   pet: PetState;
   foods: Food[];
   hats: Hat[];

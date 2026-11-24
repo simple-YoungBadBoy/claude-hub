@@ -1,10 +1,10 @@
-import type { PokerView } from "./types";
+import type { MahjongView, PokerView } from "./types";
 
 // Poker sound effects, synthesized with Web Audio: no audio files, no
 // dependencies. Which sounds to play is worked out by comparing two table
 // views, so the server needs to know nothing about it.
 
-export type Sound = "deal" | "flip" | "check" | "call" | "bet" | "allin" | "fold" | "turn" | "win" | "lose";
+export type Sound = "deal" | "flip" | "check" | "call" | "bet" | "allin" | "fold" | "turn" | "win" | "lose" | "clack" | "peng" | "gang" | "hu" | "zimo";
 
 const ACTION: Record<string, Sound> = { 弃牌: "fold", 过牌: "check", 跟注: "call", 下注: "bet", 加注: "bet", 全下: "allin" };
 
@@ -28,6 +28,26 @@ export function pokerSounds(prev: PokerView | undefined, next: PokerView): Sound
   }
   if (next.legal && next.toAct === 0 && !(prev.legal && prev.toAct === 0 && !newHand)) out.push("turn");
   if (next.winners?.length && !prev.winners?.length) out.push(next.winners.some((w) => w.id === 0) ? "win" : "lose");
+  return out;
+}
+
+const MJ: Record<string, Sound> = { 碰: "peng", 杠: "gang", 胡: "hu", 自摸: "zimo" };
+
+// mahjongSounds is pokerSounds for the mahjong table.
+export function mahjongSounds(prev: MahjongView | undefined, next: MahjongView): Sound[] {
+  if (!prev) return [];
+  const out: Sound[] = [];
+  if (next.round !== prev.round) return next.phase === "dingque" ? ["deal"] : [];
+  for (const p of next.players) {
+    const was = prev.players.find((q) => q.id === p.id);
+    if (!was) continue;
+    const s = MJ[p.lastAction ?? ""];
+    if (s && was.lastAction !== p.lastAction) out.push(s);
+    else if (p.discards.length > was.discards.length) out.push("clack");
+  }
+  const mine = (v: MahjongView) => !!v.options && (v.options.discard || v.options.pass);
+  if (mine(next) && !mine(prev)) out.push(next.options?.pass ? "check" : "turn");
+  if (next.phase === "end" && prev.phase !== "end") out.push(next.players[0].net >= 0 ? "win" : "lose");
   return out;
 }
 
@@ -79,8 +99,23 @@ export function play(list: Sound[]) {
   played.splice(0, Math.max(0, played.length - 20));
   const c = audio();
   if (!c || c.state !== "running") return;
+  for (const s of list) if (SAY[s]) say(SAY[s]);
   let t = c.currentTime + 0.01;
   for (const s of list) t = SYNTH[s](c, t) + 0.06;
+}
+
+const SAY: Partial<Record<Sound, string>> = { peng: "碰", gang: "杠", hu: "胡了", zimo: "自摸" };
+
+// the calls at a mahjong table are spoken, when the device has a Chinese voice
+function say(text: string) {
+  try {
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = "zh-CN";
+    u.rate = 1.1;
+    speechSynthesis.speak(u);
+  } catch {
+    /* no speech: the synthesized sound still plays */
+  }
 }
 
 function out(c: AudioContext, at: number, peak: number, len: number): GainNode {
@@ -159,6 +194,27 @@ const SYNTH: Record<Sound, (c: AudioContext, at: number) => number> = {
   win: (c, at) => {
     [523, 659, 784, 1047].forEach((f, i) => tone(c, at + i * 0.09, f, 0.25, 0.15, "triangle"));
     return chips(c, at + 0.4, 6);
+  },
+  clack: (c, at) => {
+    noise(c, at, 0.04, 2200, 0.35, 3);
+    return tone(c, at, 900, 0.05, 0.12, "square", 500);
+  },
+  peng: (c, at) => {
+    noise(c, at, 0.04, 2200, 0.35, 3);
+    return noise(c, at + 0.07, 0.05, 1800, 0.35, 3);
+  },
+  gang: (c, at) => {
+    let t = at;
+    for (let i = 0; i < 3; i++) t = noise(c, at + i * 0.07, 0.04, 2000, 0.35, 3);
+    return tone(c, t, 220, 0.2, 0.2, "triangle");
+  },
+  hu: (c, at) => {
+    [523, 659, 784, 1047, 1319].forEach((f, i) => tone(c, at + i * 0.07, f, 0.3, 0.14, "triangle"));
+    return at + 0.6;
+  },
+  zimo: (c, at) => {
+    [659, 784, 1047, 1319].forEach((f, i) => tone(c, at + i * 0.07, f, 0.3, 0.14, "triangle"));
+    return at + 0.55;
   },
   lose: (c, at) => {
     tone(c, at, 392, 0.18, 0.12, "triangle");
