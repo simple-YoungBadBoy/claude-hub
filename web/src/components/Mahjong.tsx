@@ -62,8 +62,11 @@ export default function Mahjong({ v, onToast }: { v: MahjongView; onToast: (m: s
   useEffect(() => {
     play(mahjongSounds(prev.current, v));
     prev.current = v;
-    setSel(null);
   }, [v]);
+  // a lifted tile drops back only when the hand changes, not on every
+  // broadcast (a full state refresh between the two taps must not undo it)
+  const handKey = `${v.round}/${v.turn}/${v.drawn}/${v.players[0].count}/${!!v.options?.discard}`;
+  useEffect(() => setSel(null), [handKey]);
 
   const send = async (path: string, body?: object) => {
     unlock();
