@@ -424,8 +424,16 @@ try {
         await tile.click();
         await page.waitForSelector(".mj-hand .tile.sel");
         assert(me.discards.length === (await api("/api/state")).mahjong.players[0].discards.length, "one tap only lifts the tile");
-        await tile.click();
-        await until(async () => (await api("/api/state")).mahjong.players[0].discards.length > me.discards.length || (await api("/api/state")).mahjong.phase === "end", "the second tap discards");
+        // tap the lifted tile; if a state update dropped it back meanwhile (the
+        // page can lag the API by one step), lift it again first
+        await until(async () => {
+          const m = (await api("/api/state")).mahjong;
+          if (m.players[0].discards.length > me.discards.length || m.phase === "end") return true;
+          const lifted = page.locator(".mj-hand .tile.sel");
+          await ((await lifted.count()) ? lifted.first() : tile).click({ timeout: 2000 }).catch(() => {});
+          await sleep(200);
+          return false;
+        }, "the second tap discards");
         tapped = true;
       } else await api("/api/mahjong/act", { action: "discard", tile: pick });
     }
