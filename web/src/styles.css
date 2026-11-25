@@ -109,6 +109,8 @@ code { background: var(--panel2); padding: 1px 5px; border-radius: 4px; }
 .session-sub { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .session .kill { opacity: 0; }
 .session:hover .kill { opacity: 1; }
+.session .kill.armed { opacity: 1; width: auto; padding: 0 8px; font-size: 12px; white-space: nowrap; color: #fff; background: var(--red, #d9534f); border-radius: 6px; }
+@media (hover: none) { .session .kill { opacity: 0.6; } }
 .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: var(--green); }
 .dot.working { background: var(--accent); animation: pulse 1s ease-in-out infinite; }
 .dot.waiting { background: var(--yellow); animation: pulse .6s ease-in-out infinite; }
@@ -549,3 +551,4 @@ button.past-more { align-self: flex-start; font-size: 12px; }
 .sl-sessions { margin-top: 8px; }
 .sl-sessions .sl-mini { width: 35%; }
 .new-mem { font-size: 12px; }
+.hist button.armed b, .hist button.armed .muted { color: var(--red); }

@@ -342,6 +342,13 @@ try {
   await page.click('.composer button:has-text("⚡")');
   await page.click('.hist.quick button:has-text("/compact")');
   await until(() => screen("renamed").includes("got: /compact"), "quick command delivered");
+  await page.click('.composer button:has-text("⚡")');
+  await page.click('.hist.quick button:has-text("/clear")');
+  await page.waitForSelector('.hist.quick button.armed:has-text("再点一次确认清空")');
+  await sleep(300);
+  assert(!screen("renamed").includes("got: /clear"), "/clear waits for a second tap");
+  await page.click('.hist.quick button.armed');
+  await until(() => screen("renamed").includes("got: /clear"), "/clear sent after confirming");
 
   log("new session can continue the directory's last conversation");
   const cont = await api("/api/sessions", { name: "cont", dir: data, continue: true });
@@ -601,11 +608,27 @@ try {
     await phone.close();
   }
 
-  log("closing a session kills it");
-  page.once("dialog", (d) => d.accept());
+  log("closing a session: a second tap confirms (no native dialog), its processes end");
+  page.on("dialog", (d) => {
+    pageErrors.push(`unexpected native dialog: ${d.message()}`);
+    d.dismiss(); // the Mac app's webview treats these as "cancel"
+  });
   await page.click('nav.tabs button:has-text("对话")');
+  const panePid = tmux("list-panes", "-t", "=renamed:", "-F", "#{pane_pid}").trim();
   await page.hover(".session >> text=renamed");
   await page.click('.session:has-text("renamed") .kill');
+  await page.waitForSelector('.session:has-text("renamed") .kill.armed:has-text("确认关闭")');
+  await sleep(500);
+  assert(tmux("ls").includes("renamed:"), "the first tap only asks");
+  await page.click('.session:has-text("renamed") .kill.armed');
+  await until(() => {
+    try {
+      process.kill(Number(panePid), 0);
+      return false;
+    } catch {
+      return true;
+    }
+  }, "the session's process exited");
   await until(() => {
     try {
       return !tmux("ls").includes("renamed:");

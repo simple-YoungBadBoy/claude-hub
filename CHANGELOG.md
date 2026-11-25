@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Closing a session from the sidebar works in the Mac app again: tap × and then 确认关闭 (the app silently cancelled the old confirmation dialog, so nothing was closed). Closing ends the session's tmux and its Claude process, freeing the memory. ⚡ /clear also asks for a second tap.
 - Faster and easier to debug when Claude is busy: a burst of hook events triggers one status poll instead of many, slow transcript reads no longer block the session list or hook handling, and the 💬 conversation view only downloads the chat again when it changed (a failed refresh keeps what is shown). API errors are now written to the server log with status and latency, without the hook noise. Image uploads time out instead of hanging, and dead terminal or event connections are cleaned up.
 - New 🀄 mahjong tab: Sichuan bloody-battle rules (void suit, pong and kong, play on after a win) against three bots, with spoken calls; each round holds 500 chips from the shared stack, so you never lose more than that.
 - Poker has sound effects (deal, chips, check, fold, your turn, win/lose), synthesized in the browser, with a mute button on the table.

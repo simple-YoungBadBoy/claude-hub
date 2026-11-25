@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { HubState, Session } from "../types";
 import PushToggle from "./PushToggle";
 
@@ -56,6 +56,14 @@ function base(p: string) {
 
 export default function Sidebar(p: Props) {
   const [editing, setEditing] = useState<string | null>(null);
+  // closing asks for a second tap on the same button: window.confirm() is
+  // silently "cancel" in the Mac app's webview, so it could never close
+  const [arm, setArm] = useState<string | null>(null);
+  useEffect(() => {
+    if (!arm) return;
+    const t = setTimeout(() => setArm(null), 4000);
+    return () => clearTimeout(t);
+  }, [arm]);
   const groups = groupSessions(p.sessions);
   const others = p.sessions.filter((s) => !s.claude);
   const keyOf = new Map(groups.flatMap((g) => g.list).map((s, i) => [s.name, i + 1]));
@@ -108,14 +116,17 @@ export default function Sidebar(p: Props) {
         {s.claude && s.context && <ContextBar c={s.context} />}
       </div>
       <button
-        className="icon kill"
-        title="关闭会话"
+        className={`icon kill ${arm === s.name ? "armed" : ""}`}
+        title={arm === s.name ? `再点一次关闭：${s.claude ? "Claude" : "里面运行的程序"}会被结束，释放内存` : "关闭会话"}
         onClick={(e) => {
           e.stopPropagation();
-          if (confirm(`关闭会话「${s.name}」？里面${s.claude ? "的 Claude" : "运行的程序"}会被结束。`)) p.onKill(s.name);
+          if (arm === s.name) {
+            setArm(null);
+            p.onKill(s.name);
+          } else setArm(s.name);
         }}
       >
-        ×
+        {arm === s.name ? "确认关闭" : "×"}
       </button>
     </div>
   );

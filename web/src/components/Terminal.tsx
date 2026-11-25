@@ -201,6 +201,10 @@ export default function Terminal({ session, info, visible, docked, onToast }: Pr
   const [hasDraft, setHasDraft] = useState(false);
   const [hist, setHist] = useState<string[] | null>(null);
   const [quick, setQuick] = useState(false);
+  const [clearArm, setClearArm] = useState(false);
+  useEffect(() => {
+    if (!quick) setClearArm(false);
+  }, [quick]);
   const composing = useRef(false);
   const [sugg, setSugg] = useState<Sugg | null>(null);
   const suggRef = useRef<Sugg | null>(null);
@@ -728,15 +732,18 @@ export default function Terminal({ session, info, visible, docked, onToast }: Pr
                   key={cmd}
                   type="button"
                   onPointerDown={(e) => e.preventDefault()}
+                  className={cmd === "/clear" && clearArm ? "armed" : undefined}
                   onClick={() => {
+                    // second tap confirms (window.confirm doesn't work in the Mac app)
+                    if (cmd === "/clear" && !clearArm) return setClearArm(true);
+                    setClearArm(false);
                     setQuick(false);
-                    if (cmd === "/clear" && !confirm("清空这个会话的对话？当前上下文会丢掉。")) return;
                     sendQ.current = sendQ.current.then(() =>
                       api(`/api/sessions/${encodeURIComponent(session)}/send`, { text: cmd }).catch((e) => onToast(`发送失败：${(e as Error).message}`, true)),
                     );
                   }}
                 >
-                  <b>{cmd}</b> <span className="muted">{what}</span>
+                  <b>{cmd}</b> <span className="muted">{cmd === "/clear" && clearArm ? "再点一次确认清空，当前上下文会丢掉" : what}</span>
                 </button>
               ))}
             </div>
