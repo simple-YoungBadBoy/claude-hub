@@ -218,12 +218,33 @@ func listenAddrs(flagVal string) []string {
 	return []string{ip + ":7788", "127.0.0.1:7788"}
 }
 
+// statusWriter remembers the status code for the request log.
+type statusWriter struct {
+	http.ResponseWriter
+	code int
+}
+
+func (w *statusWriter) WriteHeader(code int) {
+	w.code = code
+	w.ResponseWriter.WriteHeader(code)
+}
+
+// logRequests logs writes (except the frequent hook posts), failed requests
+// and slow ones, with status and latency. Websockets pass through unwrapped.
 func logRequests(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/api/") && r.Method != http.MethodGet {
-			log.Printf("%s %s %s", r.RemoteAddr, r.Method, r.URL.Path)
+		if !strings.HasPrefix(r.URL.Path, "/api/") {
+			h.ServeHTTP(w, r)
+			return
 		}
-		h.ServeHTTP(w, r)
+		start := time.Now()
+		sw := &statusWriter{ResponseWriter: w, code: http.StatusOK}
+		h.ServeHTTP(sw, r)
+		d := time.Since(start)
+		write := r.Method != http.MethodGet && r.URL.Path != "/api/hook"
+		if write || sw.code >= 400 || d > 2*time.Second {
+			log.Printf("%s %s %s %d %s", r.RemoteAddr, r.Method, r.URL.Path, sw.code, d.Round(time.Millisecond))
+		}
 	})
 }
 
@@ -280,6 +301,7 @@ func (s *server) api(fn func(r *http.Request) (any, error)) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
 		if err != nil {
+			log.Printf("%s %s: %v", r.Method, r.URL.Path, err)
 			w.WriteHeader(http.StatusBadRequest)
 			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
@@ -473,7 +495,23 @@ func (s *server) routes(mux *http.ServeMux) {
 		if !strings.HasSuffix(tr, ".jsonl") {
 			return &tmux.Chat{Messages: []tmux.ChatMsg{}}, nil
 		}
-		return tmux.ReadChat(tr, 300)
+		// the page polls while Claude works: skip the read when nothing changed
+		fi, err := os.Stat(tr)
+		if errors.Is(err, os.ErrNotExist) { // a new session writes it with the first prompt
+			return &tmux.Chat{Messages: []tmux.ChatMsg{}}, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		key := tr + "|" + fi.ModTime().Format(time.RFC3339Nano) + "|" + strconv.FormatInt(fi.Size(), 10)
+		if r.URL.Query().Get("since") == key {
+			return map[string]any{"unchanged": true, "key": key}, nil
+		}
+		c, err := tmux.ReadChat(tr, 300)
+		if c != nil {
+			c.Key = key
+		}
+		return c, err
 	}))
 
 	// Web Push (lock-screen notifications on a home-screen iPhone app)
@@ -548,7 +586,7 @@ func (s *server) routes(mux *http.ServeMux) {
 			return nil, err
 		}
 		s.mon.Hooks.Apply(e)
-		go s.mon.Poke()
+		s.mon.Nudge() // coalesced: a burst of hooks costs one poll
 		return nil, nil
 	}))
 
@@ -680,6 +718,7 @@ func (s *server) events(w http.ResponseWriter, r *http.Request) {
 	ch, cancel := s.hub.Subscribe()
 	defer cancel()
 	init, _ := json.Marshal(map[string]any{"type": "state", "data": s.state()})
+	ws.SetWriteDeadline(time.Now().Add(10 * time.Second))
 	if ws.WriteMessage(websocket.TextMessage, init) != nil {
 		return
 	}
@@ -704,6 +743,7 @@ func (s *server) events(w http.ResponseWriter, r *http.Request) {
 		case <-done:
 			return
 		case b, ok := <-ch:
+			ws.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if !ok || ws.WriteMessage(websocket.TextMessage, b) != nil {
 				return
 			}

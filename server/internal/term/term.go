@@ -10,6 +10,7 @@ import (
 	"log"
 	"os"
 	"sync"
+	"time"
 
 	"claudehub/internal/tmux"
 
@@ -26,6 +27,9 @@ type msg struct {
 
 // MaxConns caps concurrent terminals (each is a `tmux attach` process).
 const MaxConns = 24
+
+// writeWait bounds each write to the client; a stalled one is dropped.
+const writeWait = 10 * time.Second
 
 // ErrTooMany is returned by Acquire when MaxConns terminals are open.
 var ErrTooMany = errors.New("打开的终端太多了，先关掉几个标签页")
@@ -125,6 +129,7 @@ func Serve(ws *websocket.Conn, session string, cols, rows uint16) {
 			n, err := f.Read(buf)
 			if n > 0 {
 				wmu.Lock()
+				ws.SetWriteDeadline(time.Now().Add(writeWait)) // a dead client must not pin the pty
 				werr := ws.WriteMessage(websocket.BinaryMessage, buf[:n])
 				wmu.Unlock()
 				if werr != nil {
@@ -133,6 +138,7 @@ func Serve(ws *websocket.Conn, session string, cols, rows uint16) {
 			}
 			if err != nil {
 				wmu.Lock()
+				ws.SetWriteDeadline(time.Now().Add(writeWait))
 				ws.WriteMessage(websocket.TextMessage, []byte(`{"t":"exit"}`))
 				wmu.Unlock()
 				ws.Close()

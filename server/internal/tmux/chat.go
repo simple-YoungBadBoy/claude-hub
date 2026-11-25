@@ -36,6 +36,7 @@ type ChatMsg struct {
 type Chat struct {
 	Messages  []ChatMsg `json:"messages"`
 	Truncated bool      `json:"truncated,omitempty"` // older messages not shown
+	Key       string    `json:"key,omitempty"`       // transcript version, sent back as ?since=
 }
 
 const chatTail = 2 << 20 // bytes of transcript read

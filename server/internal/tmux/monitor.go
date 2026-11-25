@@ -10,11 +10,16 @@ import (
 
 // Monitor polls tmux, tracks Claude status per session and reports changes.
 type Monitor struct {
-	mu       sync.Mutex
+	mu       sync.Mutex // guards sessions only, so readers never wait on tmux
 	sessions []Session
-	status   map[string]string
-	grace    map[string]int // consecutive non-working polls while still reported as working
-	guess    map[string]*guessed
+
+	// pollMu serializes polls (a poll that listed tmux earlier can't
+	// overwrite a newer one) and guards status, grace and guess.
+	pollMu sync.Mutex
+	kick   chan struct{}
+	status map[string]string
+	grace  map[string]int // consecutive non-working polls while still reported as working
+	guess  map[string]*guessed
 
 	// Hooks, when set, refines status with Claude Code hook events.
 	Hooks *HookTracker
@@ -36,10 +41,10 @@ type guessed struct {
 }
 
 func NewMonitor() *Monitor {
-	return &Monitor{status: map[string]string{}, grace: map[string]int{}, guess: map[string]*guessed{}}
+	return &Monitor{kick: make(chan struct{}, 1), status: map[string]string{}, grace: map[string]int{}, guess: map[string]*guessed{}}
 }
 
-// guessSummary is called with m.mu held.
+// guessSummary is called with m.pollMu held.
 func (m *Monitor) guessSummary(s *Session) *Summary {
 	g := m.guess[s.Name]
 	if g == nil {
@@ -77,11 +82,26 @@ func (m *Monitor) Sessions() []Session {
 // Poke refreshes immediately (after create/kill).
 func (m *Monitor) Poke() { m.poll() }
 
+// Nudge asks Run for a poll soon without waiting; nudges that arrive while
+// one is pending collapse into it.
+func (m *Monitor) Nudge() {
+	select {
+	case m.kick <- struct{}{}:
+	default:
+	}
+}
+
 func (m *Monitor) Run(interval time.Duration) {
 	m.poll()
 	t := time.NewTicker(interval)
 	lastMinute := time.Now()
-	for range t.C {
+	for {
+		select {
+		case <-t.C:
+		case <-m.kick:
+			m.poll()
+			continue
+		}
 		m.poll()
 		if time.Since(lastMinute) >= time.Minute {
 			lastMinute = time.Now()
@@ -99,6 +119,8 @@ func (m *Monitor) Run(interval time.Duration) {
 }
 
 func (m *Monitor) poll() {
+	m.pollMu.Lock()
+	defer m.pollMu.Unlock()
 	list, err := List()
 	if err != nil {
 		log.Printf("tmux list: %v", err)
@@ -106,7 +128,6 @@ func (m *Monitor) poll() {
 	}
 	type tr struct{ name, from, to string }
 	var trs []tr
-	m.mu.Lock()
 	seen := map[string]bool{}
 	for i := range list {
 		s := &list[i]
@@ -160,6 +181,7 @@ func (m *Monitor) poll() {
 		}
 		m.Hooks.prune(alive)
 	}
+	m.mu.Lock()
 	changed := !reflect.DeepEqual(list, m.sessions)
 	m.sessions = list
 	m.mu.Unlock()

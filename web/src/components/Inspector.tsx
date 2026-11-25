@@ -81,9 +81,31 @@ function useLoad<T>(url: string | null, deps: unknown[]) {
 }
 
 function ChatView({ session, status }: { session: string; status: string }) {
-  const { data, err, reload } = useLoad<Chat>(`/api/sessions/${enc(session)}/chat`, [status]);
+  const [data, setData] = useState<Chat | null>(null);
+  const [err, setErr] = useState("");
+  const key = useRef("");
+  const seq = useRef(0);
   const box = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
+  // only download the conversation again when the transcript changed
+  const reload = useCallback(() => {
+    const n = ++seq.current;
+    const since = key.current ? `?since=${enc(key.current)}` : "";
+    api<Chat & { unchanged?: boolean; key?: string }>(`/api/sessions/${enc(session)}/chat${since}`)
+      .then((d) => {
+        if (n !== seq.current) return;
+        setErr("");
+        if (d.unchanged) return;
+        key.current = d.key ?? "";
+        setData(d);
+      })
+      .catch((e) => n === seq.current && setErr((e as Error).message));
+  }, [session]);
+  useEffect(() => {
+    key.current = "";
+    setData(null);
+  }, [session]);
+  useEffect(reload, [reload, status]);
   // refresh while Claude works; follow the bottom unless the reader scrolled up
   useEffect(() => {
     if (status !== "working") return;
@@ -94,8 +116,8 @@ function ChatView({ session, status }: { session: string; status: string }) {
     const el = box.current;
     if (el && stick.current) el.scrollTop = el.scrollHeight;
   }, [data]);
-  if (err) return <div className="insp-empty error">{err}</div>;
-  if (!data) return <div className="insp-empty">读取中…</div>;
+  // a failed background refresh keeps what is already shown
+  if (!data) return err ? <div className="insp-empty error">{err}</div> : <div className="insp-empty">读取中…</div>;
   if (!data.messages.length) return <div className="insp-empty">还没有对话记录</div>;
   return (
     <div
@@ -106,6 +128,7 @@ function ChatView({ session, status }: { session: string; status: string }) {
         stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
       }}
     >
+      {err && <div className="chat-more error">刷新失败：{err}</div>}
       {data.truncated && <div className="chat-more muted">更早的消息没有显示</div>}
       {data.messages.map((m, i) => (
         <div key={i} className={`chat-msg ${m.role}`}>

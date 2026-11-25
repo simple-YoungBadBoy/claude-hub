@@ -122,9 +122,9 @@ func (h *HookTracker) prune(alive map[string]bool) {
 // hook information for this pane: fall back to the screen alone.
 func (h *HookTracker) resolve(pane, screen string) (status, detail string, ctx *Context, ok bool) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
 	p := h.panes[pane]
 	if p == nil || !p.sawHooks {
+		h.mu.Unlock()
 		return "", "", nil, false
 	}
 	st := p.state
@@ -144,25 +144,36 @@ func (h *HookTracker) resolve(pane, screen string) (status, detail string, ctx *
 	default:
 		p.stale = 0
 	}
-	// read context only when the transcript changed
-	if p.transcr != "" {
-		if fi, err := os.Stat(p.transcr); err == nil {
-			key := fi.ModTime().String() + "/" + itoa(fi.Size())
-			if key != p.ctxKey {
-				p.ctxKey = key
-				c, sum := ReadTranscript(p.transcr)
-				if c != nil {
-					p.ctx = c
-				}
-				p.sum = keepTitle(sum, p.sum)
-			}
-		}
-	}
-	status = st
+	status, detail = st, describe(st, p.detail)
 	if st == "tool" {
 		status = "working"
 	}
-	return status, describe(st, p.detail), p.ctx, true
+	transcr, ctxKey := p.transcr, p.ctxKey
+	h.mu.Unlock()
+
+	// Read context only when the transcript changed, and without the lock:
+	// parsing can take a while and hook events must not wait for it.
+	if transcr != "" {
+		if fi, err := os.Stat(transcr); err == nil {
+			if key := fi.ModTime().String() + "/" + itoa(fi.Size()); key != ctxKey {
+				c, sum := ReadTranscript(transcr)
+				h.mu.Lock()
+				// skip if the pane moved on (new session or transcript) meanwhile
+				if h.panes[pane] == p && p.transcr == transcr {
+					p.ctxKey = key
+					if c != nil {
+						p.ctx = c
+					}
+					p.sum = keepTitle(sum, p.sum)
+				}
+				h.mu.Unlock()
+			}
+		}
+	}
+	h.mu.Lock()
+	ctx = p.ctx
+	h.mu.Unlock()
+	return status, detail, ctx, true
 }
 
 // summary is the latest transcript summary of a hooked pane.

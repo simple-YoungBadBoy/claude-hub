@@ -242,6 +242,22 @@ try {
   await page.click('.chat-tool-head:has-text("Edit")');
   await page.waitForSelector('.chat-out:has-text("README.md 已更新：第 3 行")');
   await page.screenshot({ path: join(out, "1d-inspect-chat.png") });
+  // polling an unchanged transcript costs no re-read or download
+  const chatURL = `/api/sessions/${encodeURIComponent(name)}/chat`;
+  // a new conversation has no transcript file until its first prompt: empty, not an error
+  const pane = (await api("/api/state")).sessions.find((x) => x.name === name).paneId;
+  const hook = (tr) => api("/api/hook", { pane, event: "SessionStart", session: "fresh-" + tr.length, transcript: tr });
+  await hook(join(data, "not-written-yet.jsonl"));
+  const fresh = await api(chatURL);
+  assert(!fresh.error && fresh.messages.length === 0, "missing transcript → empty chat: " + JSON.stringify(fresh));
+  await hook(join(data, "fake-transcript.jsonl"));
+  const c1 = await api(chatURL);
+  assert(c1.key && c1.messages.length > 0, "chat carries a version key");
+  const c2 = await api(`${chatURL}?since=${encodeURIComponent(c1.key)}`);
+  assert(c2.unchanged === true && !c2.messages, "unchanged transcript → no messages sent");
+  appendFileSync(join(data, "fake-transcript.jsonl"), rec({ type: "user", message: { role: "user", content: "再看一眼" } }));
+  const c3 = await api(`${chatURL}?since=${encodeURIComponent(c1.key)}`);
+  assert(!c3.unchanged && c3.messages.some((m) => m.text === "再看一眼"), "changed transcript → full chat again");
 
   log("± 改动: git changes of the session's directory, diff per file");
   const git = (...a) => execFileSync("git", ["-C", data, "-c", "user.name=e2e", "-c", "user.email=e2e@x", ...a], { encoding: "utf8" });

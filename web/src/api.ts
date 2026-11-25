@@ -27,12 +27,24 @@ export async function api<T = unknown>(path: string, body?: unknown, method?: st
 export async function upload(session: string, files: File[]): Promise<string[]> {
   const fd = new FormData();
   for (const f of files) fd.append("file", f, f.name || "image.png");
-  const res = await fetch(`/api/upload/${encodeURIComponent(session)}`, {
-    method: "POST",
-    headers: { "X-Hub": "1" },
-    body: fd,
-    credentials: "same-origin",
-  });
+  // like api(): a stalled upload must end in an error, not hang forever
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 60000);
+  let res: Response;
+  try {
+    res = await fetch(`/api/upload/${encodeURIComponent(session)}`, {
+      method: "POST",
+      headers: { "X-Hub": "1" },
+      body: fd,
+      credentials: "same-origin",
+      signal: ctl.signal,
+    });
+  } catch (e) {
+    throw new Error(ctl.signal.aborted ? "上传超时，服务器可能正在重启，稍后再试" : `连不上服务器（${(e as Error).message}），稍后再试`);
+  } finally {
+    clearTimeout(timer);
+  }
+  if (res.status === 401) throw new Unauthorized("unauthorized");
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || res.statusText);
   return data.paths;

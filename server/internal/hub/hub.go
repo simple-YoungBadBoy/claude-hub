@@ -3,6 +3,7 @@ package hub
 
 import (
 	"encoding/json"
+	"log"
 	"sync"
 )
 
@@ -29,8 +30,9 @@ func (h *Hub) Subscribe() (<-chan []byte, func()) {
 	}
 }
 
-// Publish sends {"type": typ, "data": data} to every subscriber; slow
-// subscribers drop messages rather than block.
+// Publish sends {"type": typ, "data": data} to every subscriber. A
+// subscriber too slow to keep up is closed instead of silently missing
+// events: its client reconnects and starts from a fresh snapshot.
 func (h *Hub) Publish(typ string, data any) {
 	b, err := json.Marshal(map[string]any{"type": typ, "data": data})
 	if err != nil {
@@ -42,6 +44,9 @@ func (h *Hub) Publish(typ string, data any) {
 		select {
 		case ch <- b:
 		default:
+			delete(h.subs, ch)
+			close(ch)
+			log.Printf("hub: dropped a slow client (%s)", typ)
 		}
 	}
 }
