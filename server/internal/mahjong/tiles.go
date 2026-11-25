@@ -1,13 +1,12 @@
-// Package mahjong is a Sichuan "bloody battle" (血战到底) table: 108 tiles,
-// three suits, a void suit (定缺) chosen at the start, pong and kong but no
-// chow, and play goes on after a win until three players have won or the
-// wall runs out.
+// Package mahjong is a Sichuan "bloody battle" (血战到底) table as the
+// mainstream apps play it: 108 tiles in three suits, exchange three (换三张),
+// a void suit (定缺), pong and kong but no chow, kongs paid on the spot
+// (刮风下雨), robbing a kong, passing a win blocks discard wins until your
+// next draw, and play goes on after a win until three players have won or
+// the wall runs out (then 查花猪, 查大叫 and 退税).
 package mahjong
 
-import (
-	"fmt"
-	"strings"
-)
+import "fmt"
 
 // Tile is 0..26: suit*9 + rank-1. Suits: 0 万, 1 条, 2 筒.
 type Tile int8
@@ -31,18 +30,25 @@ func (c *Counts) total() int {
 }
 
 func (c *Counts) hasSuit(s int) bool {
-	for i := s * 9; i < s*9+9; i++ {
-		if c[i] > 0 {
-			return true
-		}
+	return c.suitCount(s) > 0
+}
+
+func (c *Counts) suitCount(s int) int {
+	if s < 0 || s > 2 {
+		return 0
 	}
-	return false
+	n := 0
+	for i := s * 9; i < s*9+9; i++ {
+		n += int(c[i])
+	}
+	return n
 }
 
 // Meld is an exposed pong or kong (angang: a concealed kong).
 type Meld struct {
 	Kind string `json:"kind"` // peng gang angang
 	Tile Tile   `json:"tile"`
+	From int    `json:"from"` // who gave the tile (own ID for angang and 补杠's pong giver)
 }
 
 // sets reports whether c splits into triplets and runs.
@@ -90,6 +96,7 @@ func standard(c Counts) bool {
 	return false
 }
 
+// sevenPairs: seven pairs, where four of a kind counts as two (龙七对).
 func sevenPairs(c Counts, melds int) bool {
 	if melds > 0 {
 		return false
@@ -111,100 +118,13 @@ func Wins(c Counts, melds []Meld, que int) bool {
 	return sevenPairs(c, len(melds)) || standard(c)
 }
 
-const MaxFan = 4
-
-// Fan scores a winning hand: its doublings (capped at MaxFan) and their names.
-func Fan(c Counts, melds []Meld, zimo, kongDraw bool) (int, string) {
-	fan := 0
-	var names []string
-	all := c
-	for _, m := range melds {
-		n := int8(3)
-		if m.Kind != "peng" {
-			n = 4
-		}
-		all[m.Tile] += n
-	}
-	gen := 0 // 根: all four of a tile
-	for _, v := range all {
-		if v == 4 {
-			gen++
-		}
-	}
-	seven := sevenPairs(c, len(melds))
-	switch {
-	case seven && gen > 0:
-		fan += 2
-		names = append(names, "龙七对")
-	case seven:
-		fan += 2
-		names = append(names, "七对")
-	case triplets(c):
-		fan++
-		names = append(names, "对对胡")
-	}
-	suits := 0
-	for s := 0; s < 3; s++ {
-		if all.hasSuit(s) {
-			suits++
-		}
-	}
-	if suits == 1 {
-		fan += 2
-		names = append([]string{"清一色"}, names...)
-	}
-	if gen > 0 {
-		fan += gen
-		names = append(names, fmt.Sprintf("%d根", gen))
-	}
-	if zimo {
-		fan++
-		names = append(names, "自摸")
-	}
-	if kongDraw {
-		fan++
-		names = append(names, "杠上开花")
-	}
-	if len(names) == 0 || (len(names) == 1 && zimo) {
-		names = append([]string{"平胡"}, names...)
-	}
-	if fan > MaxFan {
-		fan = MaxFan
-	}
-	return fan, strings.Join(names, " ")
-}
-
-// triplets: the concealed part is pongs and one pair (melds are pongs already).
-func triplets(c Counts) bool {
-	pairs := 0
-	for _, v := range c {
-		switch v {
-		case 0, 3:
-		case 2:
-			pairs++
-		default:
-			return false
-		}
-	}
-	return pairs == 1
-}
-
-// Waits lists the tiles that would complete a 13-tile hand, with the best fan
-// reachable by a discard win.
-func Waits(c Counts, melds []Meld, que int) (waits []Tile, best int) {
-	best = -1
+// list is the tiles of c in order (万, 条, 筒; low to high).
+func list(c Counts) []Tile {
+	out := []Tile{}
 	for t := Tile(0); t < 27; t++ {
-		if t.Suit() == que || c[t] >= 4 {
-			continue
+		for k := int8(0); k < c[t]; k++ {
+			out = append(out, t)
 		}
-		c[t]++
-		if Wins(c, melds, que) {
-			waits = append(waits, t)
-			if f, _ := Fan(c, melds, false, false); f > best {
-				best = f
-			}
-		}
-		c[t]--
 	}
-	return waits, best
+	return out
 }

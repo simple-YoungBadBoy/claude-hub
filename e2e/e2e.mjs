@@ -405,16 +405,30 @@ try {
   assert((await page.evaluate(() => localStorage.getItem("pokerSound"))) === "off", "mute is remembered");
   await page.click(".sound-toggle");
 
-  log("mahjong: void suit, tap a tile twice to discard, play a round to the end");
+  log("mahjong: swap three, void suit, ready hints, tap a tile twice to discard, settlement sheet");
   const mjChips = (await api("/api/state")).poker.stats.chips;
   await page.click('nav.tabs button:has-text("麻将")');
   await page.click('.actions button.primary:has-text("开始")');
+  await page.waitForSelector(".mj-hand .tile.sel"); // the suggested three are picked
+  assert((await api("/api/state")).poker.stats.chips === mjChips - 1000, "the stake is held during the round");
+  assert((await page.locator(".mj-hand .tile.sel").count()) === 3, "three tiles picked for the swap");
+  assert((await page.locator(".mj-seat .tile.back").count()) === 39, "opponents' hands are face down");
+  await page.screenshot({ path: join(out, "2c-mahjong-swap.png") });
+  await page.setViewportSize({ width: 1920, height: 1000 }); // room for the full table beside the docked terminal
+  await page.waitForTimeout(200);
+  await page.screenshot({ path: join(out, "2c-mahjong-wide.png") });
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.click('.actions button.primary:has-text("换出这三张")');
   await page.waitForSelector('.actions button:has-text("缺万")');
-  assert((await api("/api/state")).poker.stats.chips === mjChips - 500, "the stake is held during the round");
-  assert(!(await page.locator(".mj-opp .mj-que").count()), "bots' void suits stay hidden until you choose");
+  const afterSwap = (await api("/api/state")).mahjong;
+  assert(afterSwap.swapDir >= 1 && afterSwap.got.length === 3, "the swap direction and the three received tiles are shown");
+  assert(await page.locator('.mj-status:has-text("换给了")').isVisible(), "the swap is announced");
+  assert(!(await page.locator(".mj-seat .mj-que").count()), "bots' void suits stay hidden until you choose");
   await page.click('.actions button.primary:has-text("缺")'); // the suggested one
-  await page.waitForSelector(".mj-opp .mj-que");
+  await page.waitForSelector(".mj-seat .mj-que");
+  await page.waitForSelector(".mj-compass .mj-dir.on");
   let tapped = false;
+  let sawHint = false;
   for (const end = Date.now() + 120000; Date.now() < end; ) {
     const v = (await api("/api/state")).mahjong;
     if (v.phase === "end") break;
@@ -426,7 +440,16 @@ try {
       const all = [...me.hand, ...(v.drawn >= 0 ? [v.drawn] : [])];
       const q = o.mustQue ? all.find((t) => Math.floor(t / 9) === me.que) : undefined;
       const pick = q ?? (v.drawn >= 0 ? v.drawn : all[all.length - 1]);
-      if (!tapped) {
+      if (v.hints?.length && !sawHint) {
+        // a discard that leaves the hand ready is marked 听, and lifting it says what it waits on
+        const h = v.hints[0];
+        await page.waitForSelector(`.mj-hand .tile[data-tile="${h.tile}"] .tile-mark`, { timeout: 3000 });
+        await page.locator(`.mj-hand .tile[data-tile="${h.tile}"]`).last().click();
+        await page.waitForSelector('.mj-status:has-text("听：")', { timeout: 3000 });
+        await page.locator(".mj-hand .tile.sel").click(); // discard it
+        await until(async () => (await api("/api/state")).mahjong.players[0].discards.length > me.discards.length || (await api("/api/state")).mahjong.phase === "end", "the hinted discard lands");
+        sawHint = tapped = true;
+      } else if (!tapped) {
         const tile = page.locator(`.mj-hand .tile[data-tile="${pick}"]`).first();
         await tile.click();
         await page.waitForSelector(".mj-hand .tile.sel");
@@ -457,6 +480,7 @@ try {
           throw new Error(`${e.message}\n${diag}`);
         });
         tapped = true;
+        await page.screenshot({ path: join(out, "2c-mahjong-play.png") });
       } else await api("/api/mahjong/act", { action: "discard", tile: pick });
     }
     await sleep(30);
@@ -464,9 +488,14 @@ try {
   const mv = (await api("/api/state")).mahjong;
   assert(mv.phase === "end" && tapped, "a round of mahjong finished");
   assert(mv.players.reduce((a, p) => a + p.net, 0) === 0, "what is won is what is lost");
+  mv.players.forEach((p, i) => assert(mv.sheet[i].reduce((a, l) => a + l.amount, 0) === p.net, `${p.name}'s sheet adds up`));
   assert((await api("/api/state")).poker.stats.chips === mjChips + mv.players[0].net, "the result is settled into the shared chips");
-  await page.waitForSelector(".mj-result");
+  await page.waitForSelector(".mj-sheet h3:has-text(\"结算\")");
+  assert((await page.locator(".mj-sheet-row").count()) === 4, "one settlement row per player");
   assert((await page.evaluate(() => window.__pokerSounds.join(","))).includes("clack"), "discards clack");
+  await page.screenshot({ path: join(out, "2c-mahjong-sheet.png") });
+  await page.click('.mj-sheet button:has-text("看牌桌")');
+  await page.waitForSelector(".mj-result");
   await page.screenshot({ path: join(out, "2c-mahjong.png") });
   await page.click('nav.tabs button:has-text("德州")');
 
@@ -601,6 +630,16 @@ try {
     const mw = await m.evaluate(() => [document.documentElement.scrollWidth, innerWidth]);
     assert(mw[0] <= mw[1], `mahjong fits the phone width (${mw})`);
     await m.screenshot({ path: join(out, "5-phone-mahjong.png") });
+    // a round in play on the phone: the table fits, the hand is one row
+    await m.tap('.mj-sheet button:has-text("再来一局")');
+    await m.waitForSelector('.actions button:has-text("换出这三张")');
+    await m.tap('.actions button:has-text("换出这三张")');
+    await m.tap('.actions button.primary:has-text("缺")');
+    await m.waitForSelector(".mj-compass .mj-dir.on");
+    await m.waitForTimeout(1500);
+    const hand = await m.locator(".mj-hand").evaluate((el) => [el.scrollWidth, el.clientWidth]);
+    assert(hand[0] <= hand[1] + 1, `the hand fits on one row (${hand})`);
+    await m.screenshot({ path: join(out, "5-phone-mahjong-play.png") });
     await m.tap('nav.tabs button:has-text("用量")');
     await m.waitForSelector(".usage-card.big");
     await m.waitForSelector(".live-strip .live-item");

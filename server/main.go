@@ -610,13 +610,21 @@ func (s *server) routes(mux *http.ServeMux) {
 		var body struct {
 			Action string
 			Tile   int
+			Tiles  []int
 			Suit   int
 		}
 		if err := decode(r, &body); err != nil {
 			return nil, err
 		}
-		if body.Action == "que" {
+		switch body.Action {
+		case "que":
 			return nil, s.mahjong.ChooseQue(body.Suit)
+		case "swap":
+			tiles := make([]mahjong.Tile, len(body.Tiles))
+			for i, t := range body.Tiles {
+				tiles[i] = mahjong.Tile(t)
+			}
+			return nil, s.mahjong.Swap(tiles)
 		}
 		return nil, s.mahjong.Act(body.Action, mahjong.Tile(body.Tile))
 	}))

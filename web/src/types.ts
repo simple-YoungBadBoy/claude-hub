@@ -45,25 +45,34 @@ export type PokerView = {
   myHand?: string;
 };
 
-export type MjMeld = { kind: "peng" | "gang" | "angang"; tile: number };
+export type MjMeld = { kind: "peng" | "gang" | "angang"; tile: number; from?: number };
+export type MjFan = { name: string; fan: number };
+export type MjWait = { tile: number; left: number; fan: number };
 export type MjPlayer = {
   id: number;
   name: string;
   bot: boolean;
   que: number;
   hu: boolean;
+  huOrder?: number;
   huName?: string;
+  huItems?: MjFan[];
   huFan: number;
   huTile: number;
+  huZimo?: boolean;
   net: number;
   melds: MjMeld[];
   discards: number[];
   count: number;
   hand?: number[];
   lastAction?: string;
+  swapped?: boolean;
+  passHu?: boolean;
+  ready?: boolean;
+  pig?: boolean;
 };
 export type MahjongView = {
-  phase: "idle" | "dingque" | "play" | "end";
+  phase: "idle" | "swap" | "dingque" | "play" | "end";
   round: number;
   dealer: number;
   turn: number;
@@ -71,8 +80,14 @@ export type MahjongView = {
   players: MjPlayer[];
   drawn: number;
   last?: { from: number; tile: number };
-  options?: { discard: boolean; hu: boolean; gang?: number[]; peng: boolean; pass: boolean; tile: number; mustQue: boolean };
+  options?: { discard: boolean; hu: boolean; gang?: number[]; peng: boolean; pass: boolean; tile: number; rob?: boolean; mustQue: boolean };
   queHint: number;
+  swapHint?: number[];
+  swapDir?: number;
+  got?: number[];
+  hints?: { tile: number; waits: MjWait[] }[];
+  waits?: MjWait[];
+  sheet?: { text: string; amount: number }[][];
   stake: number;
   log: string[];
   stats: { rounds: number; wins: number; net: number; bestFan: number; bestName?: string };

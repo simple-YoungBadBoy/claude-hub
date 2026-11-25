@@ -4,14 +4,13 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
-	"sort"
 	"sync"
 	"time"
 )
 
 const (
-	Base     = 10  // chips for a 0-fan win
-	Stake    = 500 // the most the human can lose in one round
+	Base     = 10   // chips for a 0-fan win
+	Stake    = 1000 // the most the human can lose in one round
 	MinChips = 100
 	Human    = 0
 )
@@ -24,23 +23,32 @@ type Wallet interface {
 }
 
 type Player struct {
-	ID         int    `json:"id"`
-	Name       string `json:"name"`
-	Bot        bool   `json:"bot"`
-	Que        int    `json:"que"` // void suit, -1 until chosen
-	Hu         bool   `json:"hu"`
-	HuName     string `json:"huName,omitempty"`
-	HuFan      int    `json:"huFan"`
-	HuTile     Tile   `json:"huTile"`
-	Net        int    `json:"net"` // chips won (lost) this round
-	Melds      []Meld `json:"melds"`
-	Discards   []Tile `json:"discards"`
-	Count      int    `json:"count"`          // concealed tiles
-	Hand       []Tile `json:"hand,omitempty"` // the human's; everyone's once the round ends
-	LastAction string `json:"lastAction,omitempty"`
+	ID         int       `json:"id"`
+	Name       string    `json:"name"`
+	Bot        bool      `json:"bot"`
+	Que        int       `json:"que"` // void suit, -1 until chosen
+	Hu         bool      `json:"hu"`
+	HuOrder    int       `json:"huOrder,omitempty"` // 1st, 2nd, 3rd to win
+	HuName     string    `json:"huName,omitempty"`
+	HuItems    []FanItem `json:"huItems,omitempty"`
+	HuFan      int       `json:"huFan"`
+	HuTile     Tile      `json:"huTile"`
+	HuZimo     bool      `json:"huZimo,omitempty"`
+	Net        int       `json:"net"` // chips won (lost) this round
+	Melds      []Meld    `json:"melds"`
+	Discards   []Tile    `json:"discards"`
+	Count      int       `json:"count"`          // concealed tiles
+	Hand       []Tile    `json:"hand,omitempty"` // the human's; everyone's once the round ends
+	LastAction string    `json:"lastAction,omitempty"`
+	Swapped    bool      `json:"swapped,omitempty"` // has handed in three tiles
+	PassHu     bool      `json:"passHu,omitempty"`  // passed a win: no discard wins until the next draw
+	Ready      bool      `json:"ready,omitempty"`   // ready at the end of a drawn round
+	Pig        bool      `json:"pig,omitempty"`     // 花猪 at the end of a drawn round
 
-	hand  Counts
-	drawn Tile // the tile just drawn, -1 if none
+	hand     Counts
+	drawn    Tile   // the tile just drawn, -1 if none
+	swap     []Tile // the three tiles handed in
+	kongGain int    // what the latest kong earned (呼叫转移 hands it on)
 }
 
 // Saved is what persists across restarts.
@@ -52,31 +60,50 @@ type Saved struct {
 	BestName string `json:"bestName,omitempty"`
 }
 
+// Payment is one movement of chips, for the settlement sheet.
+type Payment struct {
+	From   int    `json:"from"`
+	To     int    `json:"to"`
+	Amount int    `json:"amount"`
+	Why    string `json:"why"`
+	Kong   bool   `json:"kong,omitempty"` // 刮风下雨: refunded by 退税
+}
+
+// claim is a discard (or a kong to rob) the human may answer.
 type claim struct {
+	rob            bool // 抢杠: tile is being added to konger's pong
 	huers          []int
 	gangBy, pengBy int
 	opts           Options
 }
 
 type Game struct {
-	mu        sync.Mutex
-	rng       *rand.Rand
-	players   [4]*Player
-	wall      []Tile
-	phase     string // idle dingque play end
-	stage     string // discard (turn player to discard) | claim (the human may claim)
-	round     int
-	dealer    int
-	turn      int
-	discard   Tile
-	from      int
-	afterGang bool
-	pending   *claim
-	seq       int
-	stake     int
-	log       []string
-	saved     Saved
-	wallet    Wallet
+	mu         sync.Mutex
+	rng        *rand.Rand
+	players    [4]*Player
+	wall       []Tile
+	phase      string // idle swap dingque play end
+	stage      string // discard (turn player to discard) | claim (the human may claim)
+	round      int
+	dealer     int
+	nextDealer int // first winner of this round (the discarder on a multi-win), -1 if none yet
+	turn       int
+	discard    Tile
+	from       int
+	afterKong  bool // the turn player drew after a kong
+	kongShot   bool // the pending discard came right after the discarder's kong (杠上炮)
+	konger     int  // who is adding to a pong while it may be robbed
+	claimed    bool // a pong or kong happened this round (no more 地胡)
+	swapDir    int  // 1 下家, 2 对家, 3 上家
+	got        []Tile
+	huCount    int
+	pending    *claim
+	seq        int
+	stake      int
+	pays       []Payment
+	log        []string
+	saved      Saved
+	wallet     Wallet
 
 	// OnChange receives the human's view after every state change.
 	OnChange func(View)
@@ -88,8 +115,12 @@ type Game struct {
 
 var botNames = []string{"幺鸡", "二筒", "红中哥"}
 
+// SwapNames names the direction three tiles go: to the next player, across,
+// or to the previous one.
+var SwapNames = []string{"", "下家", "对家", "上家"}
+
 func New(saved Saved, w Wallet) *Game {
-	g := &Game{rng: rand.New(rand.NewSource(time.Now().UnixNano())), phase: "idle", saved: saved, wallet: w, turn: -1}
+	g := &Game{rng: rand.New(rand.NewSource(time.Now().UnixNano())), phase: "idle", saved: saved, wallet: w, turn: -1, nextDealer: -1}
 	g.players[0] = &Player{ID: 0, Name: "你", Que: -1, drawn: -1}
 	for i, n := range botNames {
 		g.players[i+1] = &Player{ID: i + 1, Name: n, Bot: true, Que: -1, drawn: -1}
@@ -105,9 +136,11 @@ func (g *Game) logf(format string, a ...any) {
 	}
 }
 
-func (g *Game) inRound() bool { return g.phase == "dingque" || g.phase == "play" }
+func (g *Game) inRound() bool { return g.phase == "swap" || g.phase == "dingque" || g.phase == "play" }
 
-// Start deals a new round, holding the human's stake out of the wallet.
+// Start deals a new round, holding the human's stake out of the wallet. The
+// dealer is the first winner of the last round (it stays put after a round
+// nobody won).
 func (g *Game) Start() error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -124,7 +157,9 @@ func (g *Game) Start() error {
 	}
 	g.stake = stake
 	g.round++
-	g.dealer = (g.round - 1) % 4
+	if g.nextDealer >= 0 {
+		g.dealer = g.nextDealer
+	}
 	g.wall = g.wall[:0]
 	for t := Tile(0); t < 27; t++ {
 		for k := 0; k < 4; k++ {
@@ -138,14 +173,13 @@ func (g *Game) Start() error {
 			p.hand[g.take()]++
 		}
 	}
-	d := g.players[g.dealer]
-	d.drawn = g.take()
-	d.hand[d.drawn]++
 	for _, p := range g.players[1:] {
-		p.Que = suggestQue(&p.hand)
+		p.swap, p.Swapped = suggestSwap(&p.hand), true
 	}
-	g.phase, g.stage, g.turn, g.pending, g.afterGang = "dingque", "", g.dealer, nil, false
-	g.logf("—— 第 %d 局，庄家 %s ——", g.round, d.Name)
+	g.swapDir = 1 + g.rng.Intn(3)
+	g.phase, g.stage, g.turn, g.pending, g.afterKong, g.kongShot = "swap", "", g.dealer, nil, false, false
+	g.claimed, g.huCount, g.nextDealer, g.pays, g.got = false, 0, -1, nil, nil
+	g.logf("—— 第 %d 局，庄家 %s ——", g.round, g.players[g.dealer].Name)
 	g.step()
 	return nil
 }
@@ -156,22 +190,50 @@ func (g *Game) take() Tile {
 	return t
 }
 
-// suggestQue is the suit with the fewest tiles.
-func suggestQue(c *Counts) int {
-	best, bestN := 0, 99
-	for s := 0; s < 3; s++ {
-		n := 0
-		for i := s * 9; i < s*9+9; i++ {
-			n += int(c[i])
+// Swap hands in the human's three tiles (one suit); then everyone's go round.
+func (g *Game) Swap(tiles []Tile) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.phase != "swap" {
+		return errors.New("现在不是换三张的时候")
+	}
+	me := g.players[Human]
+	if len(tiles) != 3 {
+		return errors.New("要选三张")
+	}
+	h := me.hand
+	for _, t := range tiles {
+		if t < 0 || t > 26 || h[t] == 0 {
+			return errors.New("手里没有这张牌")
 		}
-		if n < bestN {
-			best, bestN = s, n
+		if t.Suit() != tiles[0].Suit() {
+			return errors.New("三张要同一门花色")
+		}
+		h[t]--
+	}
+	me.swap, me.Swapped = append([]Tile{}, tiles...), true
+	for _, p := range g.players {
+		for _, t := range p.swap {
+			p.hand[t]--
 		}
 	}
-	return best
+	for _, p := range g.players {
+		to := g.players[(p.ID+g.swapDir)%4]
+		for _, t := range p.swap {
+			to.hand[t]++
+		}
+	}
+	g.got = append([]Tile{}, g.players[(Human+4-g.swapDir)%4].swap...)
+	g.logf("换三张：换给%s", SwapNames[g.swapDir])
+	for _, p := range g.players[1:] {
+		p.Que = suggestQue(&p.hand)
+	}
+	g.phase = "dingque"
+	g.step()
+	return nil
 }
 
-// ChooseQue sets the human's void suit and starts play.
+// ChooseQue sets the human's void suit; the dealer then draws the first tile.
 func (g *Game) ChooseQue(suit int) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -187,8 +249,8 @@ func (g *Game) ChooseQue(suit int) error {
 		parts += fmt.Sprintf(" %s缺%s", p.Name, SuitNames[p.Que])
 	}
 	g.logf("定缺：%s", parts[1:])
-	g.phase, g.stage = "play", "discard"
-	g.step()
+	g.phase = "play"
+	g.draw(g.dealer, false)
 	return nil
 }
 
@@ -215,6 +277,50 @@ func (g *Game) changed() {
 	}
 }
 
+// seenBy counts the tiles player p can see: its own hand, every discard and
+// every exposed meld.
+func (g *Game) seenBy(p *Player) Counts {
+	s := p.hand
+	for _, q := range g.players {
+		for _, t := range q.Discards {
+			s[t]++
+		}
+		for _, m := range q.Melds {
+			if m.Kind == "angang" && q != p {
+				continue // face down
+			}
+			n := int8(3)
+			if m.Kind != "peng" {
+				n = 4
+			}
+			s[m.Tile] += n
+		}
+	}
+	return s
+}
+
+// danger guesses how likely a discard feeds a player still in the round.
+func (g *Game) danger(p *Player) func(Tile) int {
+	return func(t Tile) int {
+		d := 0
+		for _, q := range g.players {
+			if q == p || q.Hu || t.Suit() == q.Que || q.hasQue() {
+				continue // a player still holding the void suit isn't ready
+			}
+			safe := false
+			for _, x := range q.Discards {
+				if x == t {
+					safe = true
+				}
+			}
+			if !safe {
+				d += 1 + len(q.Melds)
+			}
+		}
+		return d
+	}
+}
+
 func (g *Game) botTurn(seq int) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -222,20 +328,23 @@ func (g *Game) botTurn(seq int) {
 		return
 	}
 	p := g.players[g.turn]
-	if Wins(p.hand, p.Melds, p.Que) {
+	if p.drawn >= 0 && Wins(p.hand, p.Melds, p.Que) {
 		g.zimo(p)
 		return
 	}
-	if ks := g.kongs(p); len(ks) > 0 {
-		g.selfKong(p, ks[0])
-		return
+	for _, k := range g.kongs(p) {
+		if botKong(p, k, false) {
+			g.selfKong(p, k)
+			return
+		}
 	}
-	g.doDiscard(p, botDiscard(p))
+	seen := g.seenBy(p)
+	g.doDiscard(p, botDiscard(p, &seen, g.danger(p)))
 }
 
-// kongs lists the tiles p can kong on its own turn.
+// kongs lists the tiles p can kong on its own turn, right after drawing.
 func (g *Game) kongs(p *Player) []Tile {
-	if len(g.wall) == 0 {
+	if len(g.wall) == 0 || p.drawn < 0 {
 		return nil
 	}
 	var out []Tile
@@ -268,7 +377,7 @@ func (g *Game) doDiscard(p *Player, t Tile) error {
 	p.drawn = -1
 	p.Discards = append(p.Discards, t)
 	p.LastAction = "打 " + t.String()
-	g.discard, g.from, g.afterGang = t, p.ID, false
+	g.discard, g.from, g.kongShot, g.afterKong = t, p.ID, g.afterKong, false
 	g.resolveDiscard()
 	return nil
 }
@@ -278,8 +387,19 @@ func (g *Game) takeDiscard() {
 	d.Discards = d.Discards[:len(d.Discards)-1]
 }
 
-// resolveDiscard finds who claims the tile just discarded. A win beats a
-// kong or pong; bots decide at once, the human is asked when it matters.
+// canRon: q may win on t from someone else (not while passing a win).
+func canRon(q *Player, t Tile) bool {
+	if q.Hu || q.PassHu {
+		return false
+	}
+	h := q.hand
+	h[t]++
+	return Wins(h, q.Melds, q.Que)
+}
+
+// resolveDiscard finds who claims the tile just discarded. Wins beat a kong
+// or pong (several players may win on one tile); bots decide at once, the
+// human is asked when it matters.
 func (g *Game) resolveDiscard() {
 	t := g.discard
 	c := &claim{gangBy: -1, pengBy: -1}
@@ -289,9 +409,7 @@ func (g *Game) resolveDiscard() {
 		if q.Hu {
 			continue
 		}
-		h := q.hand
-		h[t]++
-		hu := Wins(h, q.Melds, q.Que)
+		hu := canRon(q, t)
 		gang := q.hand[t] == 3 && t.Suit() != q.Que && len(g.wall) > 0
 		peng := q.hand[t] >= 2 && t.Suit() != q.Que
 		if !q.Bot {
@@ -305,9 +423,9 @@ func (g *Game) resolveDiscard() {
 		switch {
 		case hu:
 			c.huers = append(c.huers, q.ID)
-		case gang:
+		case gang && botKong(q, t, true):
 			c.gangBy = q.ID
-		case peng:
+		case peng && botPeng(q, t):
 			c.pengBy = q.ID
 		}
 	}
@@ -319,22 +437,48 @@ func (g *Game) resolveDiscard() {
 	g.settle(c.huers, c.gangBy, c.pengBy)
 }
 
+// inOrder sorts winners by seat order after the discarder.
+func (g *Game) inOrder(ids []int) []int {
+	var out []int
+	for i := 1; i < 4; i++ {
+		id := (g.from + i) % 4
+		for _, h := range ids {
+			if h == id {
+				out = append(out, id)
+				break
+			}
+		}
+	}
+	return out
+}
+
 func (g *Game) settle(huers []int, gangBy, pengBy int) {
 	g.pending = nil
 	t := g.discard
 	switch {
 	case len(huers) > 0:
+		huers = g.inOrder(huers)
 		g.takeDiscard()
 		d := g.players[g.from]
 		for _, id := range huers {
 			q := g.players[id]
 			q.hand[t]++
-			fan, name := Fan(q.hand, q.Melds, false, false)
-			paid := g.pay(d, q, Base<<fan)
-			q.Hu, q.HuName, q.HuFan, q.HuTile, q.LastAction = true, name, fan, t, "胡"
-			g.logf("%s 胡 %s（%s %d番），%s 点炮付 %d", q.Name, t, name, fan, d.Name, paid)
+			g.win(q, t, d, WinCtx{KongDiscard: g.kongShot, LastTile: len(g.wall) == 0})
+		}
+		if g.kongShot && d.kongGain > 0 { // 呼叫转移: the kong's takings go to the winner
+			q := g.players[huers[0]]
+			paid := g.pay(d, q, d.kongGain, "呼叫转移", false)
+			g.logf("呼叫转移：%s 把杠钱 %d 转给 %s", d.Name, paid, q.Name)
+			d.kongGain = 0
 		}
 		d.LastAction = "点炮"
+		if g.nextDealer < 0 {
+			g.nextDealer = huers[0]
+			if len(huers) > 1 {
+				g.nextDealer = d.ID
+			}
+		}
+		g.kongShot = false
 		if g.done() {
 			g.end()
 			return
@@ -342,25 +486,52 @@ func (g *Game) settle(huers []int, gangBy, pengBy int) {
 		g.draw(g.next(huers[len(huers)-1]), false)
 	case gangBy >= 0:
 		g.takeDiscard()
-		q := g.players[gangBy]
+		q, d := g.players[gangBy], g.players[g.from]
 		q.hand[t] -= 3
-		q.Melds = append(q.Melds, Meld{"gang", t})
-		q.LastAction = "杠"
-		paid := g.pay(g.players[g.from], q, 2*Base)
-		g.logf("%s 杠 %s，%s 付 %d", q.Name, t, g.players[g.from].Name, paid)
+		q.Melds = append(q.Melds, Meld{"gang", t, d.ID})
+		q.LastAction, q.PassHu, g.claimed, g.kongShot = "杠", false, true, false
+		paid := g.pay(d, q, 2*Base, "刮风 "+t.String(), true)
+		q.kongGain = paid
+		g.logf("%s 杠 %s，%s 付 %d", q.Name, t, d.Name, paid)
 		g.draw(gangBy, true)
 	case pengBy >= 0:
 		g.takeDiscard()
 		q := g.players[pengBy]
 		q.hand[t] -= 2
-		q.Melds = append(q.Melds, Meld{"peng", t})
-		q.LastAction = "碰"
+		q.Melds = append(q.Melds, Meld{"peng", t, g.from})
+		q.LastAction, q.PassHu, g.claimed, g.kongShot = "碰", false, true, false
 		g.logf("%s 碰 %s", q.Name, t)
 		g.turn, g.stage = pengBy, "discard"
 		g.step()
 	default:
+		g.kongShot = false
 		g.draw(g.next(g.from), false)
 	}
+}
+
+// win marks q as having won on tile t, paid by d (nil: self-drawn, all
+// players still in pay).
+func (g *Game) win(q *Player, t Tile, d *Player, x WinCtx) {
+	fan, items := Score(q.hand, q.Melds, x)
+	name := itemsName(items)
+	g.huCount++
+	q.Hu, q.HuOrder, q.HuName, q.HuItems, q.HuFan, q.HuTile, q.HuZimo = true, g.huCount, name, items, fan, t, x.Zimo
+	why := name
+	if fan > 0 {
+		why += fmt.Sprintf(" %d番", fan)
+	}
+	if d != nil {
+		q.LastAction = "胡"
+		paid := g.pay(d, q, Base<<fan, "点炮 "+why, false)
+		g.logf("%s 胡 %s（%s），%s 点炮付 %d", q.Name, t, why, d.Name, paid)
+		return
+	}
+	q.LastAction = "自摸"
+	total := 0
+	for _, o := range g.others(q) {
+		total += g.pay(o, q, Base<<fan, why, false)
+	}
+	g.logf("%s 自摸 %s（%s），收 %d", q.Name, t, why, total)
 }
 
 // next is the next player still in the round after i.
@@ -373,17 +544,9 @@ func (g *Game) next(i int) int {
 	return i
 }
 
-func (g *Game) done() bool {
-	n := 0
-	for _, p := range g.players {
-		if p.Hu {
-			n++
-		}
-	}
-	return n >= 3
-}
+func (g *Game) done() bool { return g.huCount >= 3 }
 
-func (g *Game) draw(i int, afterGang bool) {
+func (g *Game) draw(i int, afterKong bool) {
 	if len(g.wall) == 0 {
 		g.end()
 		return
@@ -391,17 +554,22 @@ func (g *Game) draw(i int, afterGang bool) {
 	p := g.players[i]
 	p.drawn = g.take()
 	p.hand[p.drawn]++
-	g.turn, g.stage, g.afterGang = i, "discard", afterGang
+	p.PassHu = false // 过手胡 lasts until your next draw
+	g.turn, g.stage, g.afterKong = i, "discard", afterKong
 	g.step()
 }
 
 // pay moves chips; the human never pays more than what is left of the stake.
-func (g *Game) pay(from, to *Player, n int) int {
+func (g *Game) pay(from, to *Player, n int, why string, kong bool) int {
 	if from.ID == Human {
 		n = max(0, min(n, g.stake+from.Net))
 	}
+	if n == 0 {
+		return 0
+	}
 	from.Net -= n
 	to.Net += n
+	g.pays = append(g.pays, Payment{from.ID, to.ID, n, why, kong})
 	return n
 }
 
@@ -416,14 +584,21 @@ func (g *Game) others(p *Player) []*Player {
 }
 
 func (g *Game) zimo(p *Player) {
-	fan, name := Fan(p.hand, p.Melds, true, g.afterGang)
-	total := 0
-	for _, q := range g.others(p) {
-		total += g.pay(q, p, Base<<fan)
+	x := WinCtx{Zimo: true, KongDraw: g.afterKong, LastTile: len(g.wall) == 0}
+	switch {
+	case g.claimed:
+	case p.ID == g.dealer && g.noDiscards():
+		x.Heaven = true // the dealer's first 14 tiles
+	case p.ID != g.dealer && len(p.Discards) == 0:
+		x.Earth = true // first own draw, nothing claimed yet
 	}
-	p.Hu, p.HuName, p.HuFan, p.HuTile, p.LastAction = true, name, fan, p.drawn, "自摸"
+	t := p.drawn
 	p.drawn = -1
-	g.logf("%s 自摸（%s %d番），收 %d", p.Name, name, fan, total)
+	g.win(p, t, nil, x)
+	if g.nextDealer < 0 {
+		g.nextDealer = p.ID
+	}
+	g.afterKong = false
 	if g.done() {
 		g.end()
 		return
@@ -431,35 +606,99 @@ func (g *Game) zimo(p *Player) {
 	g.draw(g.next(p.ID), false)
 }
 
+func (g *Game) noDiscards() bool {
+	for _, q := range g.players {
+		if len(q.Discards) > 0 {
+			return false
+		}
+	}
+	return true
+}
+
 func (g *Game) selfKong(p *Player, t Tile) {
-	total := 0
+	p.drawn = -1
+	g.claimed = true
 	if p.hand[t] == 4 {
 		p.hand[t] = 0
-		p.Melds = append(p.Melds, Meld{"angang", t})
+		p.Melds = append(p.Melds, Meld{"angang", t, p.ID})
+		total := 0
 		for _, q := range g.others(p) {
-			total += g.pay(q, p, 2*Base)
+			total += g.pay(q, p, 2*Base, "下雨 "+t.String(), true)
 		}
+		p.kongGain, p.LastAction = total, "暗杠"
 		g.logf("%s 暗杠，收 %d", p.Name, total)
-	} else {
-		p.hand[t] = 0
-		for i := range p.Melds {
-			if p.Melds[i].Kind == "peng" && p.Melds[i].Tile == t {
-				p.Melds[i].Kind = "gang"
+		g.draw(p.ID, true)
+		return
+	}
+	// 补杠: the others may rob the fourth tile to win (抢杠胡)
+	c := &claim{rob: true, gangBy: -1, pengBy: -1}
+	human := false
+	for i := 1; i < 4; i++ {
+		q := g.players[(p.ID+i)%4]
+		if !canRon(q, t) {
+			continue
+		}
+		if q.Bot {
+			c.huers = append(c.huers, q.ID)
+		} else {
+			human = true
+			c.opts = Options{Hu: true, Pass: true, Tile: t, Rob: true}
+		}
+	}
+	g.discard, g.from, g.konger = t, p.ID, p.ID
+	if human {
+		p.LastAction = "补杠"
+		g.stage, g.pending = "claim", c
+		g.step()
+		return
+	}
+	g.finishAddKong(c.huers)
+}
+
+// finishAddKong completes a 补杠, or lets the robbers win on its tile.
+func (g *Game) finishAddKong(robbers []int) {
+	g.pending = nil
+	p, t := g.players[g.konger], g.discard
+	p.hand[t]--
+	if len(robbers) > 0 {
+		robbers = g.inOrder(robbers)
+		for _, id := range robbers {
+			q := g.players[id]
+			q.hand[t]++
+			g.win(q, t, p, WinCtx{RobKong: true, LastTile: len(g.wall) == 0})
+		}
+		p.LastAction = "被抢杠"
+		if g.nextDealer < 0 {
+			g.nextDealer = robbers[0]
+			if len(robbers) > 1 {
+				g.nextDealer = p.ID
 			}
 		}
-		for _, q := range g.others(p) {
-			total += g.pay(q, p, Base)
+		if g.done() {
+			g.end()
+			return
 		}
-		g.logf("%s 补杠 %s，收 %d", p.Name, t, total)
+		g.draw(g.next(robbers[len(robbers)-1]), false)
+		return
 	}
-	p.drawn = -1
-	p.LastAction = "杠"
+	for i := range p.Melds {
+		if p.Melds[i].Kind == "peng" && p.Melds[i].Tile == t {
+			p.Melds[i].Kind = "gang"
+		}
+	}
+	total := 0
+	for _, q := range g.others(p) {
+		total += g.pay(q, p, Base, "刮风 "+t.String(), true)
+	}
+	p.kongGain, p.LastAction = total, "补杠"
+	g.logf("%s 补杠 %s，收 %d", p.Name, t, total)
 	g.draw(p.ID, true)
 }
 
-// end settles a finished round. When the wall ran out, a player still
-// holding the void suit (花猪) pays everyone else still in; a player who is
-// not ready (没叫) pays each ready one what their best wait was worth.
+// end settles a finished round. When the wall ran out: a player still
+// holding the void suit (花猪) pays every other player still in the top
+// score; a player not ready (没叫) pays each ready one what their best wait is
+// worth; and whoever isn't ready hands back what their kongs earned (退税).
 func (g *Game) end() {
 	if !g.done() {
 		var left []*Player
@@ -468,33 +707,45 @@ func (g *Game) end() {
 				left = append(left, p)
 			}
 		}
-		ready := map[int]int{}
+		best := map[int]int{}
 		for _, p := range left {
-			if !p.hasQue() {
-				if w, best := Waits(p.hand, p.Melds, p.Que); len(w) > 0 {
-					ready[p.ID] = best
-				}
+			if p.hasQue() {
+				p.Pig = true
+				continue
+			}
+			if w, f := Waits(p.hand, p.Melds, p.Que); len(w) > 0 {
+				p.Ready, best[p.ID] = true, f
 			}
 		}
 		for _, p := range left {
-			if !p.hasQue() {
+			if !p.Pig {
 				continue
 			}
 			p.LastAction = "花猪"
 			for _, q := range left {
-				if !q.hasQue() {
-					g.logf("%s 花猪，付 %s %d", p.Name, q.Name, g.pay(p, q, Base<<MaxFan))
+				if !q.Pig {
+					g.logf("%s 花猪，付 %s %d", p.Name, q.Name, g.pay(p, q, Base<<MaxFan, "查花猪", false))
 				}
 			}
 		}
 		for _, p := range left {
-			if _, ok := ready[p.ID]; ok || p.hasQue() {
+			if p.Ready || p.Pig {
 				continue
 			}
 			p.LastAction = "没叫"
 			for _, q := range left {
-				if f, ok := ready[q.ID]; ok {
-					g.logf("%s 没叫，付 %s %d", p.Name, q.Name, g.pay(p, q, Base<<f))
+				if q.Ready {
+					g.logf("%s 没叫，付 %s %d", p.Name, q.Name, g.pay(p, q, Base<<best[q.ID], "查大叫", false))
+				}
+			}
+		}
+		for _, p := range left {
+			if p.Ready {
+				continue
+			}
+			for _, k := range append([]Payment{}, g.pays...) {
+				if k.Kong && k.To == p.ID {
+					g.pay(p, g.players[k.From], k.Amount, "退税", false)
 				}
 			}
 		}
@@ -537,31 +788,36 @@ func (g *Game) Act(action string, t Tile) error {
 			if !c.opts.Hu {
 				return errors.New("这张胡不了")
 			}
-			var huers []int // in turn order from the discarder
-			for i := 1; i < 4; i++ {
-				id := (g.from + i) % 4
-				if id == Human {
-					huers = append(huers, id)
-				}
-				for _, h := range c.huers {
-					if h == id {
-						huers = append(huers, id)
-					}
-				}
+			huers := append([]int{Human}, c.huers...)
+			if c.rob {
+				g.finishAddKong(huers)
+			} else {
+				g.settle(huers, -1, -1)
 			}
-			g.settle(huers, -1, -1)
-		case "gang":
-			if len(c.opts.Gang) == 0 {
-				return errors.New("杠不了")
+		case "gang", "peng":
+			if (action == "gang" && len(c.opts.Gang) == 0) || (action == "peng" && !c.opts.Peng) {
+				return errors.New("现在" + map[string]string{"gang": "杠", "peng": "碰"}[action] + "不了")
 			}
-			g.settle(nil, Human, -1)
-		case "peng":
-			if !c.opts.Peng {
-				return errors.New("碰不了")
+			if c.opts.Hu {
+				me.PassHu = true
 			}
-			g.settle(nil, -1, Human)
+			switch {
+			case len(c.huers) > 0:
+				g.settle(c.huers, -1, -1) // a win beats the claim
+			case action == "gang":
+				g.settle(nil, Human, -1)
+			default:
+				g.settle(nil, -1, Human)
+			}
 		case "pass":
-			g.settle(c.huers, c.gangBy, c.pengBy)
+			if c.opts.Hu {
+				me.PassHu = true // 过手胡: no discard wins until the next draw
+			}
+			if c.rob {
+				g.finishAddKong(c.huers)
+			} else {
+				g.settle(c.huers, c.gangBy, c.pengBy)
+			}
 		default:
 			return errors.New("现在只能胡、杠、碰或过")
 		}
@@ -572,7 +828,7 @@ func (g *Game) Act(action string, t Tile) error {
 	}
 	switch action {
 	case "hu":
-		if !Wins(me.hand, me.Melds, me.Que) {
+		if me.drawn < 0 || !Wins(me.hand, me.Melds, me.Que) {
 			return errors.New("还没胡")
 		}
 		g.zimo(me)
@@ -590,147 +846,4 @@ func (g *Game) Act(action string, t Tile) error {
 		return errors.New("现在该出牌")
 	}
 	return nil
-}
-
-// botDiscard keeps the hand closest to ready: void-suit tiles go first, then
-// a discard that leaves the most waits, then the least connected tile.
-func botDiscard(p *Player) Tile {
-	c := p.hand
-	if p.hasQue() {
-		best, bestN := Tile(-1), int8(9)
-		for t := Tile(p.Que * 9); t < Tile(p.Que*9+9); t++ {
-			if c[t] > 0 && c[t] < bestN {
-				best, bestN = t, c[t]
-			}
-		}
-		return best
-	}
-	best, bestWaits := Tile(-1), 0
-	for t := Tile(0); t < 27; t++ {
-		if c[t] == 0 {
-			continue
-		}
-		c[t]--
-		if w, _ := Waits(c, p.Melds, p.Que); len(w) > bestWaits {
-			best, bestWaits = t, len(w)
-		}
-		c[t]++
-	}
-	if best >= 0 {
-		return best
-	}
-	bestScore := 1 << 30
-	for t := Tile(0); t < 27; t++ {
-		if c[t] == 0 {
-			continue
-		}
-		s := int(c[t]-1) * 4
-		r := t.Rank()
-		for _, d := range []int{-2, -1, 1, 2} {
-			if r+d >= 1 && r+d <= 9 && c[int(t)+d] > 0 {
-				s += 3 - abs(d)
-			}
-		}
-		if r == 1 || r == 9 {
-			s--
-		}
-		if s < bestScore {
-			best, bestScore = t, s
-		}
-	}
-	return best
-}
-
-func abs(n int) int {
-	if n < 0 {
-		return -n
-	}
-	return n
-}
-
-// ---- view ----
-
-// Options are the human's legal moves right now.
-type Options struct {
-	Discard bool   `json:"discard"`
-	Hu      bool   `json:"hu"`
-	Gang    []Tile `json:"gang,omitempty"`
-	Peng    bool   `json:"peng"`
-	Pass    bool   `json:"pass"`
-	Tile    Tile   `json:"tile"` // the discard that can be claimed
-	MustQue bool   `json:"mustQue"`
-}
-
-type View struct {
-	Phase   string    `json:"phase"`
-	Round   int       `json:"round"`
-	Dealer  int       `json:"dealer"`
-	Turn    int       `json:"turn"`
-	Wall    int       `json:"wall"`
-	Players []Player  `json:"players"`
-	Drawn   Tile      `json:"drawn"` // the human's new tile, -1 if none
-	Last    *LastTile `json:"last,omitempty"`
-	Options *Options  `json:"options,omitempty"`
-	QueHint int       `json:"queHint"`
-	Stake   int       `json:"stake"`
-	Log     []string  `json:"log"`
-	Stats   Saved     `json:"stats"`
-}
-
-type LastTile struct {
-	From int  `json:"from"`
-	Tile Tile `json:"tile"`
-}
-
-func list(c Counts) []Tile {
-	out := []Tile{}
-	for t := Tile(0); t < 27; t++ {
-		for k := int8(0); k < c[t]; k++ {
-			out = append(out, t)
-		}
-	}
-	return out
-}
-
-func (g *Game) View() View {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	return g.viewLocked()
-}
-
-func (g *Game) viewLocked() View {
-	v := View{Phase: g.phase, Round: g.round, Dealer: g.dealer, Turn: g.turn, Wall: len(g.wall), Drawn: -1, Stake: g.stake,
-		Log: append([]string{}, g.log...), Stats: g.saved, QueHint: suggestQue(&g.players[Human].hand)}
-	for _, p := range g.players {
-		c := *p
-		c.Melds = append([]Meld{}, p.Melds...)
-		c.Discards = append([]Tile{}, p.Discards...)
-		c.Count = p.hand.total()
-		if p.ID == Human || g.phase == "end" {
-			h := p.hand
-			if p.ID == Human && p.drawn >= 0 && g.inRound() {
-				h[p.drawn]--
-				v.Drawn = p.drawn
-			}
-			c.Hand = list(h)
-		}
-		if g.phase == "dingque" && p.ID != Human {
-			c.Que = -1 // revealed together once the human has chosen
-		}
-		v.Players = append(v.Players, c)
-	}
-	if g.phase == "play" && g.stage == "claim" {
-		v.Last = &LastTile{g.from, g.discard}
-		o := g.pending.opts
-		v.Options = &o
-	} else if g.phase == "play" {
-		if n := len(g.players[g.from].Discards); g.turn != g.from && n > 0 && g.players[g.from].Discards[n-1] == g.discard {
-			v.Last = &LastTile{g.from, g.discard}
-		}
-		if me := g.players[Human]; g.turn == Human && !me.Hu {
-			v.Options = &Options{Discard: true, Hu: Wins(me.hand, me.Melds, me.Que), Gang: g.kongs(me), MustQue: me.hasQue()}
-		}
-	}
-	sort.SliceStable(v.Players, func(i, j int) bool { return v.Players[i].ID < v.Players[j].ID })
-	return v
 }

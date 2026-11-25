@@ -31,13 +31,13 @@ export function pokerSounds(prev: PokerView | undefined, next: PokerView): Sound
   return out;
 }
 
-const MJ: Record<string, Sound> = { 碰: "peng", 杠: "gang", 胡: "hu", 自摸: "zimo" };
+const MJ: Record<string, Sound> = { 碰: "peng", 杠: "gang", 暗杠: "gang", 补杠: "gang", 胡: "hu", 自摸: "zimo" };
 
 // mahjongSounds is pokerSounds for the mahjong table.
 export function mahjongSounds(prev: MahjongView | undefined, next: MahjongView): Sound[] {
   if (!prev) return [];
   const out: Sound[] = [];
-  if (next.round !== prev.round) return next.phase === "dingque" ? ["deal"] : [];
+  if (next.round !== prev.round) return next.phase === "swap" ? ["deal"] : [];
   for (const p of next.players) {
     const was = prev.players.find((q) => q.id === p.id);
     if (!was) continue;
