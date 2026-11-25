@@ -426,14 +426,29 @@ try {
         assert(me.discards.length === (await api("/api/state")).mahjong.players[0].discards.length, "one tap only lifts the tile");
         // tap the lifted tile; if a state update dropped it back meanwhile (the
         // page can lag the API by one step), lift it again first
+        let diag = "";
         await until(async () => {
           const m = (await api("/api/state")).mahjong;
           if (m.players[0].discards.length > me.discards.length || m.phase === "end") return true;
           const lifted = page.locator(".mj-hand .tile.sel");
-          await ((await lifted.count()) ? lifted.first() : tile).click({ timeout: 2000 }).catch(() => {});
+          const n = await lifted.count();
+          const err = await (n ? lifted.first() : tile).click({ timeout: 2000 }).then(() => "", (e) => e.message.split("\n")[0]);
+          // what the page shows vs. what the server says, for when this times out
+          diag = JSON.stringify({
+            pick, lifted: n, clickErr: err,
+            page: await page.evaluate(() => ({
+              hand: [...document.querySelectorAll(".mj-hand .tile")].map((t) => t.dataset.tile + (t.classList.contains("sel") ? "*" : "")).join(","),
+              online: !!document.querySelector(".online.on"),
+              toasts: [...document.querySelectorAll(".toast")].map((t) => t.textContent),
+              tab: document.querySelector("nav.tabs .on")?.textContent,
+            })),
+            api: { turn: m.turn, drawn: m.drawn, options: m.options, hand: m.players[0].hand?.join(","), phase: m.phase },
+          });
           await sleep(200);
           return false;
-        }, "the second tap discards");
+        }, "the second tap discards").catch((e) => {
+          throw new Error(`${e.message}\n${diag}`);
+        });
         tapped = true;
       } else await api("/api/mahjong/act", { action: "discard", tile: pick });
     }
